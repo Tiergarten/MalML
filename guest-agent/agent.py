@@ -16,7 +16,7 @@ import urllib2
 import urllib
 import json
 
-CALLBACK_URI = "http://localhost:8080/detonator/callback"
+CALLBACK_URI = "http://localhost:5000/agent/callback"
 INSTALL_DIR = "C:\\detonator-agent\\"
 
 def get_uuid(install_path):
@@ -42,6 +42,7 @@ def run_pack_pids():
 
 def parse_callback_resp(callback_resp):
 	jdata = json.loads(callback_resp)
+	print jdata
 	download_pack(jdata['extractor-pack'])
 
 	if 'uuid' in jdata:
@@ -60,6 +61,8 @@ def do_callback(callback_uri):
 
 	encoded_data = urllib.urlencode(data)
 	req = urllib2.Request(CALLBACK_URI, encoded_data)
-	parse_callback_resp(urllib2.open(req).read())
+	parse_callback_resp(urllib2.urlopen(req).read())
 
-
+if __name__ == '__main__':
+	print "HELO from agent.py"
+	do_callback(CALLBACK_URI)
