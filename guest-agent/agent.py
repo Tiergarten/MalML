@@ -15,54 +15,94 @@ import platform
 import urllib2
 import urllib
 import json
+import zipfile
 
 CALLBACK_URI = "http://localhost:5000/agent/callback"
-INSTALL_DIR = "C:\\detonator-agent\\"
 
-def get_uuid(install_path):
-	if not os.path.isfile(install_path+"uuid.txt"):
-		return None
+if os.name == 'nt':
+    INSTALL_DIR = "C:\\detonator-agent"
+else:
+    INSTALL_DIR = '.'
 
-	return open(fpath).read()
+
+def get_uuid_file_path():
+    return os.path.join(INSTALL_DIR, "uuid.txt")
+
+
+def get_uuid():
+    if not os.path.isfile(get_uuid_file_path()):
+        return None
+
+    return open(get_uuid_file_path()).read()
+
 
 def get_nodename():
-	return platform.node()
+    return platform.node()
+
+
+class MyURLopener(urllib.FancyURLopener):
+  def http_error_default(self, url, fp, errcode, errmsg, headers):
+      raise "FECK"
+
 
 def download_pack(pack_uri):
-	pass
+
+    local_fn = pack_uri.split('/')[-1]
+    local_fn_w_ext = local_fn + '.zip'
+    extracted_pack = 'extracted-' + local_fn
+
+    m = MyURLopener()
+    m.retrieve(pack_uri, local_fn_w_ext)
+
+    zip_ref = zipfile.ZipFile(local_fn_w_ext, 'r')
+    zip_ref.extractall(extracted_pack)
+    zip_ref.close()
+
+    print "extracted %s -> %s" % (pack_uri, extracted_pack)
+    return extracted_pack
+
 
 def save_uuid(uuid_str):
-	pass
+    fd = open(get_uuid_file_path(), 'w')
+    fd.write(uuid_str)
+    fd.close()
 
-def run_pack_dropper():
-	pass
+    print 'wrote uuid file'
 
-def run_pack_pids():
-	pass
+
+def run_pack_dropper(pack_dir):
+    print os.listdir(pack_dir)
+
+
+def run_pack_pids(pack_dir):
+    pass
+
 
 def parse_callback_resp(callback_resp):
-	jdata = json.loads(callback_resp)
-	print jdata
-	download_pack(jdata['extractor-pack'])
+    jdata = json.loads(callback_resp)
+    print jdata
 
-	if 'uuid' in jdata:
-		save_uuid(jdata['uuid'])
-		run_pack_dropper()
-	else:
-		run_pack_pids()
-	
+    if jdata['run_id'] == 0:
+        save_uuid(jdata['uuid'])
+
+    if 'uuid' in jdata:
+        pack_dir = download_pack(jdata['pack_url'])
+        run_pack_dropper(pack_dir)
+    else:
+        run_pack_pids('extracted-'+jdata['pack_url'].split('/')[-1])
+
+
 def do_callback(callback_uri):
-	uuid = get_uuid(INSTALL_DIR)
-	
-	data = {}
-	data['node'] = get_nodename()
-	if uuid:
-		data['uuid'] = uuid
+    uuid = get_uuid()
 
-	encoded_data = urllib.urlencode(data)
-	req = urllib2.Request(CALLBACK_URI, encoded_data)
-	parse_callback_resp(urllib2.urlopen(req).read())
+    data = {'node': get_nodename()}
+    if uuid:
+        data['uuid'] = uuid
+
+    encoded_data = urllib.urlencode(data)
+    req = urllib2.Request(callback_uri, encoded_data)
+    parse_callback_resp(urllib2.urlopen(req).read())
 
 if __name__ == '__main__':
-	print "HELO from agent.py"
-	do_callback(CALLBACK_URI)
+    print "HELO from agent.py"
+    do_callback(CALLBACK_URI)
