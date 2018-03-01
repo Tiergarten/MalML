@@ -25,84 +25,111 @@ else:
     INSTALL_DIR = '.'
 
 
-def get_uuid_file_path():
-    return os.path.join(INSTALL_DIR, "uuid.txt")
-
-
-def get_uuid():
-    if not os.path.isfile(get_uuid_file_path()):
-        return None
-
-    return open(get_uuid_file_path()).read()
-
-
-def get_nodename():
-    return platform.node()
+def read_file(file):
+    fd = open(file)
+    ret = fd.read()
+    fd.close()
+    return ret
 
 
 class MyURLopener(urllib.FancyURLopener):
   def http_error_default(self, url, fp, errcode, errmsg, headers):
-      raise "FECK"
+      raise "Unable to download %s !" % url
 
 
-def download_pack(pack_uri):
+class ExtractorPackManager:
+    def __init__(self, pack_uri):
+        self.pack_uri = pack_uri
+        self.local_path = ""
 
-    local_fn = pack_uri.split('/')[-1]
-    local_fn_w_ext = local_fn + '.zip'
-    extracted_pack = 'extracted-' + local_fn
+    def download_pack(self):
+        local_fn = self.pack_uri.split('/')[-1]
+        local_fn_w_ext = local_fn + '.zip'
+        self.local_path = 'extracted-' + local_fn
 
-    m = MyURLopener()
-    m.retrieve(pack_uri, local_fn_w_ext)
+        m = MyURLopener()
+        m.retrieve(self.pack_uri, local_fn_w_ext)
 
-    zip_ref = zipfile.ZipFile(local_fn_w_ext, 'r')
-    zip_ref.extractall(extracted_pack)
-    zip_ref.close()
+        zip_ref = zipfile.ZipFile(local_fn_w_ext, 'r')
+        zip_ref.extractall(self.local_path)
+        zip_ref.close()
 
-    print "extracted %s -> %s" % (pack_uri, extracted_pack)
-    return extracted_pack
+        print "extracted %s -> %s" % (self.pack_uri, self.local_path)
+        return self.local_path
 
+    def get_extractors(self):
+        return [e for e in os.listdir(self.local_path) if e.startswith('pack') and
+                os.path.isdir(os.path.join(self.local_path, e))]
 
-def save_uuid(uuid_str):
-    fd = open(get_uuid_file_path(), 'w')
-    fd.write(uuid_str)
-    fd.close()
+    def run_pack(self, mode='init'):
+        sample = self.get_manifest(self.local_path).split('=')[1].strip()
+        extractors = self.get_extractors()
 
-    print 'wrote uuid file'
+        print 'sample: %s, extractors: %s' % (sample, extractors)
 
+        for e in extractors:
+            print self.get_manifest(os.path.join(self.local_path, e))
 
-def run_pack_dropper(pack_dir):
-    print os.listdir(pack_dir)
-
-
-def run_pack_pids(pack_dir):
-    pass
-
-
-def parse_callback_resp(callback_resp):
-    jdata = json.loads(callback_resp)
-    print jdata
-
-    if jdata['run_id'] == 0:
-        save_uuid(jdata['uuid'])
-
-    if 'uuid' in jdata:
-        pack_dir = download_pack(jdata['pack_url'])
-        run_pack_dropper(pack_dir)
-    else:
-        run_pack_pids('extracted-'+jdata['pack_url'].split('/')[-1])
+    def get_manifest(self, path):
+        # TODO: Parse results into a dict
+        return read_file(os.path.join(path, 'manifest'))
 
 
-def do_callback(callback_uri):
-    uuid = get_uuid()
+class EnvManager(object):
+    @staticmethod
+    def get_uuid_file_path():
+        return os.path.join(INSTALL_DIR, "uuid.txt")
 
-    data = {'node': get_nodename()}
-    if uuid:
-        data['uuid'] = uuid
+    @staticmethod
+    def get_uuid():
+        if not os.path.isfile(EnvManager.get_uuid_file_path()):
+            return None
 
-    encoded_data = urllib.urlencode(data)
-    req = urllib2.Request(callback_uri, encoded_data)
-    parse_callback_resp(urllib2.urlopen(req).read())
+        return read_file(EnvManager.get_uuid_file_path())
+
+    @staticmethod
+    def save_uuid(uuid_str):
+        fd = open(EnvManager.get_uuid_file_path(), 'w')
+        fd.write(uuid_str)
+        fd.close()
+
+        print 'wrote uuid file'
+
+    @staticmethod
+    def get_nodename():
+        return platform.node()
+
+
+class AgentCallback:
+    def __init__(self, callback_uri):
+        self.callback_uri = callback_uri
+
+    def parse_callback_resp(self, callback_resp):
+        jdata = json.loads(callback_resp)
+        print jdata
+
+        if jdata['run_id'] == 0:
+            EnvManager.save_uuid(jdata['uuid'])
+
+        mgr = ExtractorPackManager(jdata['pack_url'])
+        mgr.download_pack()
+        mgr.run_pack(jdata['action'])
+
+    def do_callback(self):
+        uuid = EnvManager.get_uuid()
+
+        data = {'node': EnvManager.get_nodename()}
+        if uuid:
+            data['uuid'] = uuid
+
+        encoded_data = urllib.urlencode(data)
+        req = urllib2.Request(self.callback_uri, encoded_data)
+        self.parse_callback_resp(urllib2.urlopen(req).read())
+
+    def run(self):
+        self.do_callback()
 
 if __name__ == '__main__':
     print "HELO from agent.py"
-    do_callback(CALLBACK_URI)
+    cb = AgentCallback(CALLBACK_URI)
+    cb.run()

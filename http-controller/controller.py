@@ -82,7 +82,7 @@ def callback():
 
 @app.route('/agent/extractor_pack/<pack_name>')
 def extractor_pack(pack_name):
-    return send_from_directory(".", "e.zip")
+    return send_from_directory("./samples/", "sample_ext_pack.zip")
 
 
 @app.route('/agent/upload/<cb_uuid>/<run_id>')
