@@ -62,17 +62,35 @@ class ExtractorPackManager:
                 os.path.isdir(os.path.join(self.local_path, e))]
 
     def run_pack(self, mode='init'):
-        sample = self.get_manifest(self.local_path).split('=')[1].strip()
+        sample = self.get_manifest(self.local_path)['sample']
         extractors = self.get_extractors()
 
         print 'sample: %s, extractors: %s' % (sample, extractors)
 
         for e in extractors:
-            print self.get_manifest(os.path.join(self.local_path, e))
+            exec_str_key = 'run-'+mode
+            exec_str = self.get_manifest(os.path.join(self.local_path, e))[exec_str_key]
+            exec_str_pp = self.replace_placeholders(exec_str, {'SAMPLE': sample,
+                                                        'NON_WHITELIST_PID' : '1024'})
+
+            print exec_str_pp
 
     def get_manifest(self, path):
-        # TODO: Parse results into a dict
-        return read_file(os.path.join(path, 'manifest'))
+        data = read_file(os.path.join(path, 'manifest'))
+        resp = {}
+        for line in data.split('\n'):
+            if not line:
+                continue
+            kv = line.split('=')
+            resp[kv[0]] = kv[1]
+
+        return resp
+
+    def replace_placeholders(self, template_str, find_repl_dict):
+        for k, v in find_repl_dict.iteritems():
+            template_str = template_str.replace('<'+k+'>', v)
+
+        return template_str
 
 
 class EnvManager(object):
