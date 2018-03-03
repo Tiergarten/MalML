@@ -16,6 +16,7 @@ import urllib2
 import urllib
 import json
 import zipfile
+import psutil
 
 CALLBACK_URI = "http://localhost:5000/agent/callback"
 
@@ -35,6 +36,55 @@ def read_file(file):
 class MyURLopener(urllib.FancyURLopener):
   def http_error_default(self, url, fp, errcode, errmsg, headers):
       raise "Unable to download %s !" % url
+
+
+class ProcessWhitelist:
+    def __init__(self, whitelist=''):
+        if whitelist == '':
+            self.whitelist = self.get_proclist()
+        else:
+            self.whitelist = whitelist
+
+    def to_json(self, p):
+        return {    'cwd': p.cwd(),
+                    'proc': p.name(),
+                    'argline': ' '.join(p.cmdline()),
+                    'parent': p.parent().name()
+                }
+
+    def from_file(self, f):
+        self.whitelist = json.loads(read_file(f))
+
+    def to_file(self, f):
+        fd = open(f, 'w')
+        fd.write(json.dumps(self.whitelist))
+        fd.close()
+
+    def get_proclist(self):
+        ret = []
+        for pid in psutil.pids():
+            try:
+                p = psutil.Process(pid)
+                ret.append(self.to_json(p))
+            except:
+                pass
+
+        return ret
+
+    def find_not_whitelisted_procs(self):
+        ret = []
+        for pid in psutil.pids():
+            try:
+                j = self.to_json(psutil.Process(pid))
+                if j in self.whitelist:
+                    continue
+                else:
+                    print 'found new process - %s' % j
+                    ret.append(pid)
+            except:
+                pass
+
+        return ret
 
 
 class ExtractorPackManager:
@@ -67,13 +117,34 @@ class ExtractorPackManager:
 
         print 'sample: %s, extractors: %s' % (sample, extractors)
 
-        for e in extractors:
-            exec_str_key = 'run-'+mode
-            exec_str = self.get_manifest(os.path.join(self.local_path, e))[exec_str_key]
-            exec_str_pp = self.replace_placeholders(exec_str, {'SAMPLE': sample,
-                                                        'NON_WHITELIST_PID' : '1024'})
+        pw = ProcessWhitelist()
+        non_whitelist_pid = pw.find_not_whitelisted_procs()
 
-            print exec_str_pp
+        if len(non_whitelist_pid) > 1:
+            print 'WARN: Multiple new processes found! %s' % non_whitelist_pid
+        elif len(non_whitelist_pid) == 0:
+            print 'WARN: No non whitelisted proc found'
+            non_whitelist_pid = [0]
+
+        for e in extractors:
+            extractor_dir = os.path.join(self.local_path, e)
+            exec_str_key = 'run-'+mode
+            exec_str = self.get_manifest(extractor_dir)[exec_str_key]
+            exec_str_pp = self.replace_placeholders(exec_str, {'SAMPLE': sample,
+                'NON_WHITELIST_PID' : non_whitelist_pid[0]})
+
+            self.do_exec(extractor_dir, exec_str_pp)
+
+    def do_exec(self, rundir, exec_str):
+        print rundir
+        print exec_str
+
+        execve_str = exec_str.split(' ')
+
+        print execve_str
+
+        os.chdir(rundir)
+        os.execve(execve_str[0], execve_str, os.environ)
 
     def get_manifest(self, path):
         data = read_file(os.path.join(path, 'manifest'))
@@ -88,7 +159,7 @@ class ExtractorPackManager:
 
     def replace_placeholders(self, template_str, find_repl_dict):
         for k, v in find_repl_dict.iteritems():
-            template_str = template_str.replace('<'+k+'>', v)
+            template_str = template_str.replace('<'+str(k)+'>', str(v))
 
         return template_str
 
@@ -124,7 +195,6 @@ class AgentCallback:
 
     def parse_callback_resp(self, callback_resp):
         jdata = json.loads(callback_resp)
-        print jdata
 
         if jdata['run_id'] == 0:
             EnvManager.save_uuid(jdata['uuid'])
