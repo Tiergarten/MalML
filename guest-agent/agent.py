@@ -129,7 +129,13 @@ class ExtractorPackManager:
         for e in extractors:
             extractor_dir = os.path.join(self.local_path, e)
             exec_str_key = 'run-'+mode
-            exec_str = self.get_manifest(extractor_dir)[exec_str_key]
+
+            manifest = self.get_manifest(extractor_dir)
+
+            if manifest is None:
+                continue
+
+            exec_str = manifest[exec_str_key]
             exec_str_pp = self.replace_placeholders(exec_str, {'SAMPLE': sample,
                 'NON_WHITELIST_PID' : non_whitelist_pid[0]})
 
@@ -144,10 +150,18 @@ class ExtractorPackManager:
         print execve_str
 
         os.chdir(rundir)
-        os.execve(execve_str[0], execve_str, os.environ)
+        if os.path.isfile(exec_str[0]):
+            os.execve(execve_str[0], execve_str, os.environ)
+        else:
+            print 'ERR: %s not found' % execve_str[0]
 
     def get_manifest(self, path):
-        data = read_file(os.path.join(path, 'manifest'))
+        mfile = os.path.join(path, 'manifest')
+        if not os.path.isfile(mfile):
+            print 'ERR: %s not found' % mfile
+            return None
+
+        data = read_file(mfile)
         resp = {}
         for line in data.split('\n'):
             if not line:
