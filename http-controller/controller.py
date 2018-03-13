@@ -11,7 +11,9 @@ uuid_run_map = {}
 AGENT_INSTALL_PATH = '../guest-agent/agent.py'
 EXTRACTOR_PACK_PATH = "epack.zip"
 
-EXTRACTOR_PACK_URL = 'http://localhost:5000/agent/extractor_pack/default'
+EXT_IF = 'http://192.168.1.130:5000'
+EXTRACTOR_PACK_URL = '{}/agent/extractor_pack/default'.format(EXT_IF)
+SAMPLE_URL = '{}/agent/get_sample/71fc87528a591c3c6679e7d72b2c93b683fcc996f26769f0e0ee4264e1c5089a'.format(EXT_IF)
 
 #
 # Consumer
@@ -71,24 +73,31 @@ def callback():
 
     print "in callback - uuid: %s node: %s" % (cb_uuid, node)
     resp['pack_url'] = EXTRACTOR_PACK_URL
+    resp['sample_url'] = SAMPLE_URL
 
     if uuid_run_map[cb_uuid] == 0:
         resp['action'] = 'init'
-        return json.dumps(resp)
 
     resp['action'] = 'seek_and_destroy'
+
+    # TODO: Remove this to return to normal flow
+    resp['action'] = 'init'
     return json.dumps(resp)
 
 
 @app.route('/agent/extractor_pack/<pack_name>')
 def extractor_pack(pack_name):
-    return send_from_directory("./samples/", "sample_ext_pack.zip")
+    return send_from_directory("./extractor-packs/", "pack.zip")
 
 
 @app.route('/agent/upload/<cb_uuid>/<run_id>')
 def upload_results(cb_uuid, run_id, file_upload):
     pass
 
+@app.route('/agent/get_sample/<sha256>')
+def get_sample(sha256):
+    return send_from_directory("./samples/", "615cc5670435e88acb614c467d6dc9b09637f917f02f3b14cd8460d1ac6058ec")
+
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, host='0.0.0.0')
