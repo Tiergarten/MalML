@@ -1,7 +1,9 @@
 import os
 import urllib
+import subprocess
 
-GET_AGENT_URI = "http://localhost:5000/agent-stub/get-agent"
+# TODO read this from env
+GET_AGENT_URI = "http://192.168.1.130:5000/agent-stub/get-agent"
 
 if os.name == 'nt':
     PYTHON_BIN = "C:\\Python27\\python.exe"
@@ -18,11 +20,9 @@ def get_agent(agent_uri):
 
 def exec_agent(agent_path):
     cmd = [PYTHON_BIN, agent_path]
-    print cmd
 
     # TODO: Wait for finish, or interrupt after pre-defined time?
-    os.execve(cmd[0], cmd, os.environ)
-    os.exit(0)
+    subprocess.Popen(cmd).wait()
 
 
 if __name__ == '__main__':

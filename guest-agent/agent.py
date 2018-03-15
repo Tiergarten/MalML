@@ -17,9 +17,15 @@ import urllib
 import json
 import zipfile
 import psutil
+import requests
+import subprocess
+import datetime
+import gzip
 
 # TODO: read this from ENV[]
-CALLBACK_URI = "http://192.168.1.130:5000/agent/callback"
+CONTROLLER = "http://192.168.1.130:5000"
+CALLBACK_URI = "{}/agent/callback".format(CONTROLLER)
+UPLOAD_URI = "{}/agent/upload".format(CONTROLLER)
 INSTALL_DIR = '.'
 
 
@@ -92,6 +98,11 @@ class ExtractorPackManager:
         self.sample = ''
         self.pack_path = ''
 
+        self.meta_data = {}
+
+    def set_meta_data(self, data):
+        self.meta_data = data
+
     def download_file(self, uri, lname):
         m = MyURLopener()
         m.retrieve(uri, lname)
@@ -147,6 +158,23 @@ class ExtractorPackManager:
                 'NON_WHITELIST_PID' : non_whitelist_pid[0]})
 
             self.do_exec(extractor_dir, exec_str_pp)
+            self.upload_output(manifest['upload-file'])
+
+    def upload_output(self, fn):
+
+        print '{} uploading {}'.format(datetime.datetime.now(), fn)
+        gzipped_f = '{}.gz'.format(fn)
+
+        with open(fn) as fd:
+            with gzip.open(gzipped_f, 'wb') as gz:
+                gz.writelines(fd)
+
+        with open(gzipped_f, 'rb') as gz:
+            r = requests.post(UPLOAD_URI+'/{}/{}/{}'.format(self.meta_data['sample'], self.meta_data['uuid'],
+                                        self.meta_data['run_id']), files={gzipped_f: gz}, data=self.meta_data)
+            print r.text
+
+        print 'upload finished: {}'.format(datetime.datetime.now())
 
     def do_exec(self, rundir, exec_str):
         execve_str = exec_str.split(' ')
@@ -154,8 +182,19 @@ class ExtractorPackManager:
         fqpn = os.path.abspath(execve_str[0])
 
         print 'calling: {} with args: {} from cwd: {}'.format(fqpn, execve_str[1:], os.getcwd())
+
         if os.path.isfile(fqpn):
-            os.execve(fqpn, execve_str, os.environ)
+
+            start_tm = datetime.datetime.now()
+            print 'before pintool start: {}'.format(start_tm)
+            self.meta_data['exec_start_tm'] = start_tm
+
+            p = subprocess.Popen([fqpn]+execve_str[1:])
+            p.wait()
+
+            end_tm = datetime.datetime.now()
+            print 'after pintool: {}'.format(end_tm)
+            self.meta_data['exec_end_tm'] = end_tm
         else:
             print 'ERR: %s not found' % fqpn
 
@@ -209,6 +248,7 @@ class EnvManager(object):
 class AgentCallback:
     def __init__(self, callback_uri):
         self.callback_uri = callback_uri
+        self.uuid = ''
 
     def parse_callback_resp(self, callback_resp):
         jdata = json.loads(callback_resp)
@@ -217,15 +257,17 @@ class AgentCallback:
             EnvManager.save_uuid(jdata['uuid'])
 
         mgr = ExtractorPackManager(jdata['pack_url'], jdata['sample_url'])
+        mgr.set_meta_data({'uuid': self.uuid, 'run_type': jdata['action'], 'run_id': jdata['run_id'],
+                           'sample': jdata['sample_url'].split('/')[-1], 'node': EnvManager.get_nodename()})
         mgr.download_pack()
         mgr.run_pack(jdata['action'])
 
     def do_callback(self):
-        uuid = EnvManager.get_uuid()
+        self.uuid = EnvManager.get_uuid()
 
         data = {'node': EnvManager.get_nodename()}
-        if uuid:
-            data['uuid'] = uuid
+        if self.uuid:
+            data['uuid'] = self.uuid
 
         encoded_data = urllib.urlencode(data)
         req = urllib2.Request(self.callback_uri, encoded_data)

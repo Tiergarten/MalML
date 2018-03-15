@@ -1,5 +1,8 @@
 import json
 import uuid
+import pprint
+import tempfile
+import os
 
 from flask import Flask, request, send_from_directory
 
@@ -90,9 +93,27 @@ def extractor_pack(pack_name):
     return send_from_directory("./extractor-packs/", "pack.zip")
 
 
-@app.route('/agent/upload/<cb_uuid>/<run_id>')
-def upload_results(cb_uuid, run_id, file_upload):
-    pass
+@app.route('/agent/upload/<sample>/<uuid>/<run_id>', methods=['GET', 'POST'])
+def upload_results(sample, uuid, run_id):
+    upload_dir = os.path.join('uploads', sample, uuid, run_id)
+
+    try:
+        os.makedirs(upload_dir)
+    except:
+        pass
+
+    for f in request.files:
+        local_f = os.path.join(upload_dir, f)
+        request.files[f].save(local_f)
+        print 'wrote {}'.format(local_f)
+
+    metadata_f = 'run-{}-meta.json'.format(run_id)
+    with open(os.path.join(upload_dir, metadata_f), 'w') as metadata:
+        metadata.write(json.dumps(request.form))
+        print 'wrote {}'.format(metadata_f)
+
+    return "OK"
+
 
 @app.route('/agent/get_sample/<sha256>')
 def get_sample(sha256):
@@ -100,4 +121,5 @@ def get_sample(sha256):
 
 
 if __name__ == '__main__':
+    app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
     app.run(debug=True, host='0.0.0.0')
