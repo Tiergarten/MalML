@@ -1,7 +1,6 @@
 import json
 import uuid
-import pprint
-import tempfile
+import random
 import os
 
 from flask import Flask, request, send_from_directory
@@ -65,26 +64,57 @@ def get_form_param(param_name):
         return None
 
 
+class SampleQueue:
+    def sample_already_processed(self, sample):
+        if os.path.isdir('uploads/{}'.format(sample)):
+            return True
+        else:
+            return False
+
+    # TODO: this is not thread safe, using disk as master record
+    def get_sample_to_process(self):
+        to_process = filter(lambda x: self.sample_already_processed(x) is True,
+                            os.listdir('samples'))
+
+        if len(to_process) == 0:
+            print 'No samples left to process'
+            return None
+
+        return '{}/agent/get_sample/{}'.format(EXT_IF, random.choice(to_process))
+
+
+class VmManager:
+    def __init__(self, vm_name, snapshot_name='autorun v0.1'):
+        self.vm_name = vm_name
+        self.snapshot_name =  snapshot_name
+
+    def restart(self):
+        pass
+
+    def restore_snapshot(self):
+        pass
+
 # TODO: Run_id & action needs to be done per extractor?!
 @app.route('/agent/callback', methods=['POST'])
 def callback():
-
     cb_uuid = get_form_param('uuid')
     node = get_form_param('node')
 
     cb_uuid, resp = update_callback_details(cb_uuid)
+    print 'in callback - uuid: {} node: {}'.format(cb_uuid, node)
 
-    print "in callback - uuid: %s node: %s" % (cb_uuid, node)
     resp['pack_url'] = EXTRACTOR_PACK_URL
-    resp['sample_url'] = SAMPLE_URL
+    resp['pack'] = 'pack-1'
 
-    if uuid_run_map[cb_uuid] == 0:
+    if resp['run_id'] == 0:
+        resp['sample_url'] = SampleQueue().get_sample_to_process()
         resp['action'] = 'init'
 
     resp['action'] = 'seek_and_destroy'
 
     # TODO: Remove this to return to normal flow
     resp['action'] = 'init'
+
     return json.dumps(resp)
 
 
@@ -112,12 +142,23 @@ def upload_results(sample, uuid, run_id):
         metadata.write(json.dumps(request.form))
         print 'wrote {}'.format(metadata_f)
 
+    vm_mgr = VmManager(request.form['node'])
+
+    if request.form['runs-left'] == 0:
+        print 'no runs left, restoring vm to snapshot'
+        vm_mgr.restore_snapshot()
+    else:
+        print 'bouncing vm'
+        vm_mgr.restart()
+
+    print json.dumps(request.form)
+
     return "OK"
 
 
 @app.route('/agent/get_sample/<sha256>')
 def get_sample(sha256):
-    return send_from_directory("./samples/", "615cc5670435e88acb614c467d6dc9b09637f917f02f3b14cd8460d1ac6058ec")
+    return send_from_directory("./samples/", sha256)
 
 
 if __name__ == '__main__':

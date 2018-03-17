@@ -29,13 +29,6 @@ UPLOAD_URI = "{}/agent/upload".format(CONTROLLER)
 INSTALL_DIR = '.'
 
 
-def read_file(file):
-    fd = open(file)
-    ret = fd.read()
-    fd.close()
-    return ret
-
-
 class MyURLopener(urllib.FancyURLopener):
   def http_error_default(self, url, fp, errcode, errmsg, headers):
       raise "Unable to download %s !" % url
@@ -56,7 +49,7 @@ class ProcessWhitelist:
                 }
 
     def from_file(self, f):
-        self.whitelist = json.loads(read_file(f))
+        self.whitelist = json.loads(EnvManager.read_file(f))
 
     def to_file(self, f):
         fd = open(f, 'w')
@@ -91,17 +84,14 @@ class ProcessWhitelist:
 
 
 class ExtractorPackManager:
-    def __init__(self, pack_uri, sample_uri):
-        self.pack_uri = pack_uri
-        self.sample_uri = sample_uri
+    def __init__(self, meta_data):
+        self.pack_uri = meta_data['pack_url']
+        self.sample_uri = meta_data['sample_url']
 
         self.sample = ''
         self.pack_path = ''
 
-        self.meta_data = {}
-
-    def set_meta_data(self, data):
-        self.meta_data = data
+        self.meta_data = meta_data
 
     def download_file(self, uri, lname):
         m = MyURLopener()
@@ -126,15 +116,7 @@ class ExtractorPackManager:
         self.download_file(self.sample_uri, self.sample)
         print 'downloaded {} -> {}'.format(self.sample_uri, self.sample)
 
-    def get_extractors(self):
-        return [e for e in os.listdir(self.pack_path) if e.startswith('pack') and
-                os.path.isdir(os.path.join(self.pack_path, e))]
-
-    def run_pack(self, mode='init'):
-        extractors = self.get_extractors()
-        sample = self.sample
-        print 'sample: %s, extractors: %s' % (sample, extractors)
-
+    def get_non_whitelisted_pid(self):
         pw = ProcessWhitelist()
         non_whitelist_pid = pw.find_not_whitelisted_procs()
 
@@ -144,7 +126,26 @@ class ExtractorPackManager:
             print 'WARN: No non whitelisted proc found'
             non_whitelist_pid = [0]
 
+        return non_whitelist_pid
+
+    def get_extractors(self):
+        return [e for e in os.listdir(self.pack_path) if e.startswith('pack') and
+                os.path.isdir(os.path.join(self.pack_path, e))]
+
+    def run_pack(self, mode='init'):
+        extractors = self.get_extractors()
+        sample = self.sample
+        print 'sample: %s, extractors: %s' % (sample, extractors)
+
+        if mode == 'seek_and_destroy':
+            non_whitelist_pid = self.get_non_whitelisted_pid()
+        else:
+            non_whitelist_pid = 0
+
         for e in extractors:
+            if e not in self.meta_data['pack'].split(','):
+                continue
+
             extractor_dir = os.path.join(self.pack_path, e)
             exec_str_key = 'run-'+mode
 
@@ -155,12 +156,18 @@ class ExtractorPackManager:
 
             exec_str = manifest[exec_str_key]
             exec_str_pp = self.replace_placeholders(exec_str, {'SAMPLE': sample,
-                'NON_WHITELIST_PID' : non_whitelist_pid[0]})
+                                                               'NON_WHITELIST_PID': non_whitelist_pid})
 
             self.do_exec(extractor_dir, exec_str_pp)
-            self.upload_output(manifest['upload-file'])
+            self.upload_output(manifest)
 
-    def upload_output(self, fn):
+    def get_upload_path(self):
+        return UPLOAD_URI+'/{}/{}/{}'.format(self.sample, self.meta_data['uuid'], self.meta_data['run_id'])
+
+    def upload_output(self, manifest):
+
+        fn = manifest['upload-file']
+        self.meta_data['runs-left'] = int(manifest['total-runs']) - int(self.meta_data['run_id']) - 1
 
         print '{} uploading {}'.format(datetime.datetime.now(), fn)
         gzipped_f = '{}.gz'.format(fn)
@@ -170,8 +177,7 @@ class ExtractorPackManager:
                 gz.writelines(fd)
 
         with open(gzipped_f, 'rb') as gz:
-            r = requests.post(UPLOAD_URI+'/{}/{}/{}'.format(self.meta_data['sample'], self.meta_data['uuid'],
-                                        self.meta_data['run_id']), files={gzipped_f: gz}, data=self.meta_data)
+            r = requests.post(self.get_upload_path(), files={gzipped_f: gz}, data=self.meta_data)
             print r.text
 
         print 'upload finished: {}'.format(datetime.datetime.now())
@@ -204,7 +210,7 @@ class ExtractorPackManager:
             print 'ERR: %s not found' % mfile
             return None
 
-        data = read_file(mfile)
+        data = EnvManager.read_file(mfile)
         resp = {}
         for line in data.split('\n'):
             if not line:
@@ -222,23 +228,44 @@ class ExtractorPackManager:
 
 
 class EnvManager(object):
+
     @staticmethod
-    def get_uuid_file_path():
-        return os.path.join(INSTALL_DIR, "uuid.txt")
+    def read_file(fn):
+        ret = None
+        with open(fn) as fd:
+            ret = fd.read()
+
+        return ret
+
+    @staticmethod
+    def write_env_file(fn, contents):
+        with open(os.path.join(INSTALL_DIR, fn), 'w') as fd:
+            fd.write(contents)
+
+    @staticmethod
+    def read_env_file(fn):
+        path = os.path.join(INSTALL_DIR, fn)
+        if os.path.isfile(path):
+            return EnvManager.read_file(fn)
+        else:
+            return None
 
     @staticmethod
     def get_uuid():
-        if not os.path.isfile(EnvManager.get_uuid_file_path()):
-            return None
-
-        return read_file(EnvManager.get_uuid_file_path())
+        return EnvManager.read_env_file('uuid.txt')
 
     @staticmethod
     def save_uuid(uuid_str):
-        with open(EnvManager.get_uuid_file_path(), 'w') as fd:
-            fd.write(uuid_str)
-
+        EnvManager.write_env_file('uuid.txt', uuid_str)
         print 'wrote uuid file'
+
+    @staticmethod
+    def save_sample(sample):
+        EnvManager.write_env_file('sample.txt', sample)
+
+    @staticmethod
+    def get_sample():
+        return EnvManager.read_env_file('sample.txt')
 
     @staticmethod
     def get_nodename():
@@ -248,26 +275,29 @@ class EnvManager(object):
 class AgentCallback:
     def __init__(self, callback_uri):
         self.callback_uri = callback_uri
-        self.uuid = ''
 
     def parse_callback_resp(self, callback_resp):
         jdata = json.loads(callback_resp)
 
+        # I don't think the server should track run_id...
         if jdata['run_id'] == 0:
             EnvManager.save_uuid(jdata['uuid'])
+            EnvManager.save_sample(jdata['sample_url'])
+        else:
+            jdata['sample_url'] = EnvManager.get_sample()
 
-        mgr = ExtractorPackManager(jdata['pack_url'], jdata['sample_url'])
-        mgr.set_meta_data({'uuid': self.uuid, 'run_type': jdata['action'], 'run_id': jdata['run_id'],
-                           'sample': jdata['sample_url'].split('/')[-1], 'node': EnvManager.get_nodename()})
+        jdata['node'] = EnvManager.get_nodename()
+
+        mgr = ExtractorPackManager(jdata)
         mgr.download_pack()
         mgr.run_pack(jdata['action'])
 
     def do_callback(self):
-        self.uuid = EnvManager.get_uuid()
+        uuid = EnvManager.get_uuid()
 
         data = {'node': EnvManager.get_nodename()}
-        if self.uuid:
-            data['uuid'] = self.uuid
+        if uuid:
+            data['uuid'] = uuid
 
         encoded_data = urllib.urlencode(data)
         req = urllib2.Request(self.callback_uri, encoded_data)

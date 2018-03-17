@@ -1,6 +1,7 @@
 import os
 import urllib
 import subprocess
+import time
 
 # TODO read this from env
 GET_AGENT_URI = "http://192.168.1.130:5000/agent-stub/get-agent"
@@ -26,6 +27,7 @@ def exec_agent(agent_path):
 
 
 if __name__ == '__main__':
+    time.sleep(10)
     agent = get_agent(GET_AGENT_URI)
     exec_agent(agent)
 
