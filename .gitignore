@@ -101,7 +101,7 @@ ENV/
 .mypy_cache/
 .idea
 _agent.py
-samples
-uploads/
-extractor-packs
+samples/*
+uploads/*
+extractor-packs/*
 uuid.txt

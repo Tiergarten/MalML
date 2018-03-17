@@ -2,6 +2,7 @@ import json
 import uuid
 import random
 import os
+import subprocess
 
 from flask import Flask, request, send_from_directory
 
@@ -84,15 +85,27 @@ class SampleQueue:
 
 
 class VmManager:
-    def __init__(self, vm_name, snapshot_name='autorun v0.1'):
+    def __init__(self, vm_name, snapshot_name):
         self.vm_name = vm_name
-        self.snapshot_name =  snapshot_name
+        self.snapshot_name = snapshot_name
+        self.script_path = os.path.join('bash ', '..',
+                                        'vbox-controller', 'vbox-ctrl.sh')
+
+        self.script_path = 'bash ../vbox-controller/vbox-ctrl.sh'
+
+    def call_ctrl_script(self, action):
+        cmdline = "{} -v '{}' -s '{}' -a '{}'".format(self.script_path, self.vm_name,
+                                                self.snapshot_name, action)
+
+        print cmdline
+
+        ret = subprocess.call(cmdline, shell=True)
 
     def restart(self):
-        pass
+        return self.call_ctrl_script('restart')
 
     def restore_snapshot(self):
-        pass
+        return self.call_ctrl_script('restore')
 
 # TODO: Run_id & action needs to be done per extractor?!
 @app.route('/agent/callback', methods=['POST'])
@@ -142,7 +155,8 @@ def upload_results(sample, uuid, run_id):
         metadata.write(json.dumps(request.form))
         print 'wrote {}'.format(metadata_f)
 
-    vm_mgr = VmManager(request.form['node'])
+    # win7_sp1_ent-dec_2011_vm1
+    vm_mgr = VmManager(request.form['node'], 'autorun v0.2')
 
     if request.form['runs-left'] == 0:
         print 'no runs left, restoring vm to snapshot'

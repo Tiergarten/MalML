@@ -23,7 +23,7 @@ import datetime
 import gzip
 
 # TODO: read this from ENV[]
-CONTROLLER = "http://192.168.1.130:5000"
+CONTROLLER = "http://192.168.1.145:5000"
 CALLBACK_URI = "{}/agent/callback".format(CONTROLLER)
 UPLOAD_URI = "{}/agent/upload".format(CONTROLLER)
 INSTALL_DIR = '.'

@@ -9,6 +9,7 @@ function isRunning() {
 }
 
 function manage() {
+	echo "${VBOX_PATH}/VBoxManage.exe" "$@"
 	"${VBOX_PATH}/VBoxManage.exe" "$@"
 }
 
@@ -34,23 +35,47 @@ function restoreSnapshot() {
 	local vmName=$1
 	local snapshotName=$2
 
-	manage snapshot ${vmName} restore ${snapshotName}
+	echo ${snapshotName}
+
+	manage snapshot ${vmName} restore "${snapshotName}"
 }
 
 function main() {
-	local vmName="XP1"
 
-	while true; do
-		if [[ $(isRunning ${vmName}) == "0" ]]; then
-			startVm ${vmName}
-		fi
+    while getopts ":v:a:s:" opt; do
+        case ${opt} in
+            v)
+                vmName=${OPTARG}
+                ;;
+            a)
+                action=${OPTARG}
+                ;;
+            s)
+                snapshotName=${OPTARG}
+                ;;
+        esac
+    done
 
-		sleep 2m
+    echo "vm: ${vmName}, snapshotName: ${snapshotName}, action: ${action}"
 
-		stopVm ${vmName}
-		restoreSnapshot ${vmName} init
-	done
-
+    case ${action} in
+        "start")
+            if [[ $(isRunning ${vmName}) == "0" ]]; then
+			    startVm ${vmName}
+		    fi
+		;;
+		"restart")
+		    if [[ $(isRunning ${vmName}) == "1" ]]; then
+			    stopVm ${vmName}
+		    fi
+		    startVm ${vmName}
+        ;;
+        "restore")
+            stopVm ${vmName}
+            restoreSnapshot ${vmName} "${snapshotName}"
+            startVm ${vmName}
+        ;;
+	esac
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
