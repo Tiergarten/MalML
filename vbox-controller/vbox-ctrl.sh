@@ -2,6 +2,10 @@
 
 VBOX_PATH="/cygdrive/c/Program Files/Oracle/VirtualBox"
 
+function info() {
+    echo "[$$] [INFO] $@"
+}
+
 function isRunning() {
 	local vmName=$1
 
@@ -9,7 +13,7 @@ function isRunning() {
 }
 
 function manage() {
-	echo "${VBOX_PATH}/VBoxManage.exe" "$@"
+	info "${VBOX_PATH}/VBoxManage.exe" "$@"
 	"${VBOX_PATH}/VBoxManage.exe" "$@"
 }
 
@@ -19,11 +23,11 @@ function stopVm() {
 	manage controlvm ${vmName} acpipowerbutton
 
 	while [[ $(isRunning ${vmName}) == "1" ]]; do
-		>&2 echo "Polling for shutdown of ${vmName}..."
+		info "Polling for shutdown of ${vmName}..."
 		sleep 5s
 	done
 
-	>&2 echo "${vmName} stopped"
+	info "${vmName} stopped"
 }
 
 function startVm() {
@@ -34,8 +38,6 @@ function startVm() {
 function restoreSnapshot() {
 	local vmName=$1
 	local snapshotName=$2
-
-	echo ${snapshotName}
 
 	manage snapshot ${vmName} restore "${snapshotName}"
 }
@@ -56,7 +58,7 @@ function main() {
         esac
     done
 
-    echo "vm: ${vmName}, snapshotName: ${snapshotName}, action: ${action}"
+    info "VBOX-CTRL CALLED: vm: ${vmName}, snapshotName: ${snapshotName}, action: ${action}"
 
     case ${action} in
         "start")
@@ -68,11 +70,14 @@ function main() {
 		    if [[ $(isRunning ${vmName}) == "1" ]]; then
 			    stopVm ${vmName}
 		    fi
+		    sleep 5s
 		    startVm ${vmName}
         ;;
         "restore")
             stopVm ${vmName}
+            sleep 5s
             restoreSnapshot ${vmName} "${snapshotName}"
+            sleep 5s
             startVm ${vmName}
         ;;
 	esac

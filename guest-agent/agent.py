@@ -21,6 +21,7 @@ import requests
 import subprocess
 import datetime
 import gzip
+from threading import Timer
 
 # TODO: read this from ENV[]
 CONTROLLER = "http://192.168.1.145:5000"
@@ -121,7 +122,7 @@ class ExtractorPackManager:
         non_whitelist_pid = pw.find_not_whitelisted_procs()
 
         if len(non_whitelist_pid) > 1:
-            print 'WARN: Multiple new processes found! %s' % non_whitelist_pid
+            print 'WARN: Multiple new processes found! %s'.format(non_whitelist_pid)
         elif len(non_whitelist_pid) == 0:
             print 'WARN: No non whitelisted proc found'
             non_whitelist_pid = [0]
@@ -135,7 +136,7 @@ class ExtractorPackManager:
     def run_pack(self, mode='init'):
         extractors = self.get_extractors()
         sample = self.sample
-        print 'sample: %s, extractors: %s' % (sample, extractors)
+        print 'sample: %s, extractors: %s'.format(sample, extractors)
 
         if mode == 'seek_and_destroy':
             non_whitelist_pid = self.get_non_whitelisted_pid()
@@ -169,18 +170,24 @@ class ExtractorPackManager:
         fn = manifest['upload-file']
         self.meta_data['runs-left'] = int(manifest['total-runs']) - int(self.meta_data['run_id']) - 1
 
-        print '{} uploading {}'.format(datetime.datetime.now(), fn)
-        gzipped_f = '{}.gz'.format(fn)
+        if os.path.isfile(fn):
+            print '{} gzipping {} ({})'.format(datetime.datetime.now(), fn, os.path.getsize(fn))
+            gzipped_f = '{}.gz'.format(fn)
 
-        with open(fn) as fd:
-            with gzip.open(gzipped_f, 'wb') as gz:
-                gz.writelines(fd)
+            with open(fn) as fd:
+                with gzip.open(gzipped_f, 'wb') as gz:
+                    gz.writelines(fd)
 
-        with open(gzipped_f, 'rb') as gz:
-            r = requests.post(self.get_upload_path(), files={gzipped_f: gz}, data=self.meta_data)
+            print '{} uploading {} ({})'.format(datetime.datetime.now(), gzipped_f, os.path.getsize(gzipped_f))
+            with open(gzipped_f, 'rb') as gz:
+                r = requests.post(self.get_upload_path(), files={gzipped_f: gz}, data=self.meta_data)
+                print r.text
+
+            print 'upload finished: {}'.format(datetime.datetime.now())
+        else:
+            self.meta_data['ERROR'] = 'no_file_to_upload'
+            r = requests.post(self.get_upload_path(), data=self.meta_data)
             print r.text
-
-        print 'upload finished: {}'.format(datetime.datetime.now())
 
     def do_exec(self, rundir, exec_str):
         execve_str = exec_str.split(' ')
@@ -195,14 +202,27 @@ class ExtractorPackManager:
             print 'before pintool start: {}'.format(start_tm)
             self.meta_data['exec_start_tm'] = start_tm
 
+            timeout_mins = 5
             p = subprocess.Popen([fqpn]+execve_str[1:])
-            p.wait()
+            psid = psutil.Process(p.pid)
+            try:
+                psid.wait(timeout=timeout_mins*60)
+            except psutil.TimeoutExpired:
+                self.kill_long_running_process(p.pid)
 
             end_tm = datetime.datetime.now()
             print 'after pintool: {}'.format(end_tm)
             self.meta_data['exec_end_tm'] = end_tm
         else:
             print 'ERR: %s not found' % fqpn
+
+    def kill_long_running_process(self, pid):
+        print 'timeout_mins breached, killing process'
+        parent = psutil.Process(pid)
+        for child in parent.children(recursive=True):
+            child.kill()
+        parent.kill()
+        self.meta_data['INFO'] = 'breached_timeout'
 
     def get_manifest(self, path):
         mfile = os.path.join(path, 'manifest')
@@ -305,6 +325,7 @@ class AgentCallback:
 
     def run(self):
         self.do_callback()
+
 
 if __name__ == '__main__':
     print "HELO from agent.py"

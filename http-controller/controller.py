@@ -3,20 +3,21 @@ import uuid
 import random
 import os
 import subprocess
-
+import time
+from datetime import datetime
 from flask import Flask, request, send_from_directory
+import redis
+from threading import Thread
+from config import *
+import logging
+from logging.handlers import TimedRotatingFileHandler
 
 app = Flask(__name__)
+r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT)
 
-# TODO: How should we store shared state?
+# TODO: Move this to redis
 uuid_run_map = {}
 
-AGENT_INSTALL_PATH = '../guest-agent/agent.py'
-EXTRACTOR_PACK_PATH = "epack.zip"
-
-EXT_IF = 'http://192.168.1.130:5000'
-EXTRACTOR_PACK_URL = '{}/agent/extractor_pack/default'.format(EXT_IF)
-SAMPLE_URL = '{}/agent/get_sample/71fc87528a591c3c6679e7d72b2c93b683fcc996f26769f0e0ee4264e1c5089a'.format(EXT_IF)
 
 #
 # Consumer
@@ -67,45 +68,79 @@ def get_form_param(param_name):
 
 class SampleQueue:
     def sample_already_processed(self, sample):
-        if os.path.isdir('uploads/{}'.format(sample)):
+        if os.path.isdir(os.path.join('uploads', sample)):
             return True
         else:
             return False
 
     # TODO: this is not thread safe, using disk as master record
     def get_sample_to_process(self):
-        to_process = filter(lambda x: self.sample_already_processed(x) is True,
+        to_process = filter(lambda x: self.sample_already_processed(x) is False,
                             os.listdir('samples'))
 
         if len(to_process) == 0:
             print 'No samples left to process'
             return None
 
+        print 'to process: {}'.format(len(to_process))
         return '{}/agent/get_sample/{}'.format(EXT_IF, random.choice(to_process))
 
 
 class VmManager:
-    def __init__(self, vm_name, snapshot_name):
+    def __init__(self, vm_name, snapshot_name, enabled=True):
         self.vm_name = vm_name
         self.snapshot_name = snapshot_name
-        self.script_path = os.path.join('bash ', '..',
-                                        'vbox-controller', 'vbox-ctrl.sh')
-
         self.script_path = 'bash ../vbox-controller/vbox-ctrl.sh'
+        self.enabled = enabled
 
     def call_ctrl_script(self, action):
         cmdline = "{} -v '{}' -s '{}' -a '{}'".format(self.script_path, self.vm_name,
-                                                self.snapshot_name, action)
+                                                      self.snapshot_name, action)
+        print '[{}] calling {}'.format("LIVE" if self.enabled else "MOCK", cmdline)
 
-        print cmdline
-
-        ret = subprocess.call(cmdline, shell=True)
+        if self.enabled:
+            ret = subprocess.Popen(cmdline, shell=True)
 
     def restart(self):
         return self.call_ctrl_script('restart')
 
     def restore_snapshot(self):
         return self.call_ctrl_script('restore')
+
+
+class VmHeartbeat(Thread):
+    def __init__(self):
+        Thread.__init__(self)
+        self.hash_name = 'heartbeat'
+        self.timeout_secs_limit = 10 * 60
+        self.poll_tm_secs = 60
+
+    def heartbeat(self, vm_name):
+        now = time.time()
+        r.hset(self.hash_name, vm_name, now)
+        print 'set heartbeat for {} -> {}'.format(vm_name, now)
+
+    def run(self):
+        while True:
+            for vm, snapshot in ACTIVE_VMS:
+                idle_since = r.hget(self.hash_name, vm)
+                idle_secs = (datetime.now() - datetime.fromtimestamp(float(idle_since))).seconds
+                print '{} idle for {}s'.format(vm, idle_secs)
+                if idle_secs > self.timeout_secs_limit:
+                    print '{} breached timeout limit, restoring...'.format(vm)
+                    VmManager(vm, snapshot).restore_snapshot()
+                    # TODO: create the upload dir for this sample - with node name incase its OS specific...
+                    # how do i get this info?? reddiss???
+
+            time.sleep(self.poll_tm_secs)
+
+
+@app.before_request
+def before_request():
+    node = get_form_param('node')
+    if node is not None:
+        VmHeartbeat().heartbeat(node)
+
 
 # TODO: Run_id & action needs to be done per extractor?!
 @app.route('/agent/callback', methods=['POST'])
@@ -133,11 +168,15 @@ def callback():
 
 @app.route('/agent/extractor_pack/<pack_name>')
 def extractor_pack(pack_name):
-    return send_from_directory("./extractor-packs/", "pack.zip")
+    return send_from_directory("extractor-packs", "sample_pack.zip")
 
 
 @app.route('/agent/upload/<sample>/<uuid>/<run_id>', methods=['GET', 'POST'])
-def upload_results(sample, uuid, run_id):
+def upload_results(sample, uuid, run_id, force_one_run=True):
+
+    if sample.endswith('.exe'):
+        sample = sample.replace('.exe', '')
+
     upload_dir = os.path.join('uploads', sample, uuid, run_id)
 
     try:
@@ -155,10 +194,14 @@ def upload_results(sample, uuid, run_id):
         metadata.write(json.dumps(request.form))
         print 'wrote {}'.format(metadata_f)
 
-    # win7_sp1_ent-dec_2011_vm1
     vm_mgr = VmManager(request.form['node'], 'autorun v0.2')
 
-    if request.form['runs-left'] == 0:
+    if 'ERROR' in request.form.keys():
+        print 'error in run: {}'.format(request.form['ERROR'])
+        vm_mgr.restore_snapshot()
+        return "OK"
+
+    if int(request.form['runs-left']) <= 0 or force_one_run:
         print 'no runs left, restoring vm to snapshot'
         vm_mgr.restore_snapshot()
     else:
@@ -172,9 +215,25 @@ def upload_results(sample, uuid, run_id):
 
 @app.route('/agent/get_sample/<sha256>')
 def get_sample(sha256):
-    return send_from_directory("./samples/", sha256)
+    return send_from_directory("samples", sha256)
+
+
+def init(init_vms=True):
+    if init_vms:
+        for vm, snapshot in ACTIVE_VMS:
+            vm_mgr = VmManager(vm, snapshot)
+            vm_mgr.restore_snapshot()
+
+    vm_hb = VmHeartbeat()
+    vm_hb.start()
+
+    app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
+
+    log_handler = TimedRotatingFileHandler('controller.log', when='D')
+    log_handler.setLevel(logging.INFO)
+    app.logger.addHandler(log_handler)
 
 
 if __name__ == '__main__':
-    app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
-    app.run(debug=True, host='0.0.0.0')
+    init()
+    app.run(host='0.0.0.0')
