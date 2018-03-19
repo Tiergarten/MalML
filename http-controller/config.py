@@ -10,3 +10,8 @@ ACTIVE_VMS = [('win7_sp1_ent-dec_2011_vm1', 'autorun v0.2'),
 
 REDIS_HOST = 'localhost'
 REDIS_PORT = 6379
+
+SAMPLES_DIR = 'samples'
+AGENT_DIR = '../guest-agent/'
+UPLOADS_DIR = 'uploads'
+EXTRACTOR_PACK_DIR = 'extractor-packs'
