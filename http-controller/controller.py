@@ -11,7 +11,6 @@ from threading import Thread
 from config import *
 import logging
 from logging.handlers import TimedRotatingFileHandler
-from consumer import *
 import sys
 
 app = Flask(__name__)
