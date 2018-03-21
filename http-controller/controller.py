@@ -12,6 +12,7 @@ from config import *
 import logging
 from logging.handlers import TimedRotatingFileHandler
 import sys
+from common import *
 
 app = Flask(__name__)
 r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT)
@@ -68,7 +69,7 @@ class SampleQueue:
     # TODO: this is not thread safe, using disk as master record
     def get_sample_to_process(self):
         to_process = filter(lambda x: self.sample_already_processed(x) is False,
-                            os.listdir(SAMPLES_DIR))
+                            get_samples(SAMPLES_DIR))
 
         if len(to_process) == 0:
             app.logger.info('No samples left to process')
@@ -132,6 +133,7 @@ class VmHeartbeat(Thread):
         if not os.path.exists(udir):
             os.makedirs(udir)
 
+        # TODO: this needs to conform to normal flow 'run-0-metadata.json'
         bad_f = os.path.join(udir, '{}.bad'.format(vm))
         with open(bad_f, 'w') as fd:
             fd.write('nop')
@@ -217,13 +219,13 @@ def upload_results(sample, uuid, run_id, force_one_run=True):
 
     metadata_f = 'run-{}-meta.json'.format(run_id)
     with open(os.path.join(upload_dir, metadata_f), 'w') as metadata:
-        metadata.write(json.dumps(request.form))
+        metadata.write(json.dumps(request.form, indent=4, sort_keys=True))
         app.logger.info('wrote {}'.format(metadata_f))
 
     vm_mgr = VmManager(request.form['node'], 'autorun v0.2')
 
-    if 'ERROR' in request.form.keys():
-        app.logger.info('error in run: {}'.format(request.form['ERROR']))
+    if not request.form['status'] in ['OK', 'WARN']:
+        app.logger.info('error in run: {}:{}'.format(request.form['status'], request.form['status_msg']))
         vm_mgr.restore_snapshot()
         return "OK"
 

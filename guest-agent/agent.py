@@ -165,12 +165,17 @@ class ExtractorPackManager:
     def get_upload_path(self):
         return UPLOAD_URI+'/{}/{}/{}'.format(self.sample, self.meta_data['uuid'], self.meta_data['run_id'])
 
+    def set_run_status(self, json, status, msg):
+        json['status'] = status
+        json['status_msg'] = msg
+
     def upload_output(self, manifest):
 
         fn = manifest['upload-file']
         self.meta_data['runs-left'] = int(manifest['total-runs']) - int(self.meta_data['run_id']) - 1
 
         if os.path.isfile(fn):
+            self.meta_data['output-before-gz'] = os.path.getsize(fn)
             print '{} gzipping {} ({})'.format(datetime.datetime.now(), fn, os.path.getsize(fn))
             gzipped_f = '{}.gz'.format(fn)
 
@@ -178,14 +183,17 @@ class ExtractorPackManager:
                 with gzip.open(gzipped_f, 'wb') as gz:
                     gz.writelines(fd)
 
+            self.meta_data['output-after-gz'] = os.path.getsize(gzipped_f)
+
             print '{} uploading {} ({})'.format(datetime.datetime.now(), gzipped_f, os.path.getsize(gzipped_f))
             with open(gzipped_f, 'rb') as gz:
                 r = requests.post(self.get_upload_path(), files={gzipped_f: gz}, data=self.meta_data)
                 print r.text
 
             print 'upload finished: {}'.format(datetime.datetime.now())
+            self.set_run_status(self.meta_data, 'OK', datetime.datetime.now())
         else:
-            self.meta_data['ERROR'] = 'no_file_to_upload'
+            self.set_run_status(self.meta_data, 'ERR', 'no_file_to_upload')
             r = requests.post(self.get_upload_path(), data=self.meta_data)
             print r.text
 

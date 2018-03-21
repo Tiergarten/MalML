@@ -34,7 +34,7 @@ class MetaDataWriter:
         return requests.get('https://www.virustotal.com/vtapi/v2/file/report',
                             params=params, headers=http_headers).json()
 
-    def write_sample_metadata(self):
+    def write_sample_metadata_to_disk(self):
         cnt = 0
         for sample in self.get_samples_without_metadata(self.sample_dir):
             md = self.get_vti_sample_metadata(sample)
@@ -47,6 +47,9 @@ class MetaDataWriter:
             cnt += 1
 
         print 'wrote json for {} samples'.format(cnt)
+
+    def write_smaple_metadata_to_elastic(self):
+        pass
 
 
 class SampleEnqueuer(threading.Thread):
@@ -84,7 +87,7 @@ if __name__ == '__main__':
     for opt, arg in opts:
         if opt in ('-m', '--metadata'):
             print 'syncing metadata...'
-            MetaDataWriter(config.SAMPLES_DIR).write_sample_metadata()
+            MetaDataWriter(config.SAMPLES_DIR).write_sample_metadata_to_disk()
         if opt in ('-q', '--queue-samples'):
             SampleEnqueuer((config.REDIS_HOST, config.REDIS_PORT, config.REDIS_QUEUE), 10).run()
 
