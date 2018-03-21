@@ -173,6 +173,7 @@ class ExtractorPackManager:
 
         fn = manifest['upload-file']
         self.meta_data['runs-left'] = int(manifest['total-runs']) - int(self.meta_data['run_id']) - 1
+        self.meta_data['pack-manifest'] = manifest
 
         if os.path.isfile(fn):
             self.meta_data['output-before-gz'] = os.path.getsize(fn)
