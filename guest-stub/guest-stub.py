@@ -1,10 +1,13 @@
 import os
 import urllib
-import subprocess
+from subprocess import Popen, PIPE
 import time
+import requests
 
 # TODO read this from env
-GET_AGENT_URI = "http://192.168.1.130:5000/agent-stub/get-agent"
+DETONATOR_HTTPD = 'http://192.168.1.130:5000'
+GET_AGENT_URI = '{}/agent-stub/get-agent'.format(DETONATOR_HTTPD)
+ERR_URI = '{}/agent-stub/error'.format(DETONATOR_HTTPD)
 
 if os.name == 'nt':
     PYTHON_BIN = "C:\\Python27\\python.exe"
@@ -14,7 +17,6 @@ else:
 
 def get_agent(agent_uri):
     local_filename = "_agent.py"
-    # TODO: how do i check the return code?
     urllib.urlretrieve(GET_AGENT_URI, local_filename)
     return local_filename
 
@@ -22,9 +24,13 @@ def get_agent(agent_uri):
 def exec_agent(agent_path):
     cmd = [PYTHON_BIN, agent_path]
 
-    # TODO: Wait for finish, or interrupt after pre-defined time?
-    subprocess.Popen(cmd).wait()
+    proc = Popen(cmd, stdout=PIPE)
+    out, err = proc.communicate()
 
+    post_data = { 'exit_code': proc.returncode, 'output': out }
+
+    if out.returncode != 0:
+        r = requests.post(ERR_URI, data=post_data)
 
 if __name__ == '__main__':
     time.sleep(10)
