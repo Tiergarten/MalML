@@ -22,12 +22,14 @@ import subprocess
 import datetime
 import gzip
 from threading import Timer
+import time
 
 # TODO: read this from ENV[]
 CONTROLLER = "http://192.168.1.145:5000"
 CALLBACK_URI = "{}/agent/callback".format(CONTROLLER)
 UPLOAD_URI = "{}/agent/upload".format(CONTROLLER)
 INSTALL_DIR = '.'
+EXEC_TIMEOUT_MINS = 3
 
 
 class MyURLopener(urllib.FancyURLopener):
@@ -100,7 +102,6 @@ class ExtractorPackManager:
 
     def download_pack(self):
         local_fn = self.pack_uri.split('/')[-1]
-        self.meta_data['extractor-pack'] = local_fn
         local_fn_w_ext = local_fn + '.zip'
         self.pack_path = 'extracted-' + local_fn
 
@@ -137,7 +138,7 @@ class ExtractorPackManager:
     def run_pack(self, mode='init'):
         extractors = self.get_extractors()
         sample = self.sample
-        print 'sample: %s, extractors: %s'.format(sample, extractors)
+        print 'sample: {}, extractors: {}'.format(sample, extractors)
 
         if mode == 'seek_and_destroy':
             non_whitelist_pid = self.get_non_whitelisted_pid()
@@ -145,7 +146,7 @@ class ExtractorPackManager:
             non_whitelist_pid = 0
 
         for e in extractors:
-            if e not in self.meta_data['pack'].split(','):
+            if e not in self.meta_data['extractor-pack'].split(','):
                 continue
 
             extractor_dir = os.path.join(self.pack_path, e)
@@ -170,11 +171,12 @@ class ExtractorPackManager:
         json['status'] = status
         json['status_msg'] = msg
 
+    # TODO: This needs re-written... too big
     def upload_output(self, manifest):
 
         fn = manifest['upload-file']
         self.meta_data['runs-left'] = int(manifest['total-runs']) - int(self.meta_data['run_id']) - 1
-        self.meta_data['pack-manifest'] = manifest
+        self.meta_data['manifest'] = json.dumps(manifest)
 
         if os.path.isfile(fn):
             self.meta_data['output-before-gz'] = os.path.getsize(fn)
@@ -188,12 +190,13 @@ class ExtractorPackManager:
             self.meta_data['output-after-gz'] = os.path.getsize(gzipped_f)
 
             print '{} uploading {} ({})'.format(datetime.datetime.now(), gzipped_f, os.path.getsize(gzipped_f))
+
             with open(gzipped_f, 'rb') as gz:
+                self.set_run_status(self.meta_data, 'OK', 'uploading at {}'.format(datetime.datetime.now()))
                 r = requests.post(self.get_upload_path(), files={gzipped_f: gz}, data=self.meta_data)
                 print r.text
 
             print 'upload finished: {}'.format(datetime.datetime.now())
-            self.set_run_status(self.meta_data, 'OK', datetime.datetime.now())
         else:
             self.set_run_status(self.meta_data, 'ERR', 'no_file_to_upload')
             r = requests.post(self.get_upload_path(), data=self.meta_data)
@@ -207,16 +210,14 @@ class ExtractorPackManager:
         print 'calling: {} with args: {} from cwd: {}'.format(fqpn, execve_str[1:], os.getcwd())
 
         if os.path.isfile(fqpn):
-
             start_tm = datetime.datetime.now()
             print 'before pintool start: {}'.format(start_tm)
             self.meta_data['exec_start_tm'] = start_tm
 
-            timeout_mins = 5
             p = subprocess.Popen([fqpn]+execve_str[1:])
             psid = psutil.Process(p.pid)
             try:
-                psid.wait(timeout=timeout_mins*60)
+                psid.wait(timeout=EXEC_TIMEOUT_MINS*60)
             except psutil.TimeoutExpired:
                 self.kill_long_running_process(p.pid)
 
@@ -230,8 +231,14 @@ class ExtractorPackManager:
         print 'timeout_mins breached, killing process'
         parent = psutil.Process(pid)
         for child in parent.children(recursive=True):
-            child.kill()
-        parent.kill()
+            try:
+                child.kill()
+            except:
+                pass
+        try:
+            parent.kill()
+        except:
+            pass
         self.meta_data['INFO'] = 'breached_timeout'
 
     def get_manifest(self, path):
@@ -338,6 +345,11 @@ class AgentCallback:
 
 
 if __name__ == '__main__':
-    print "HELO from agent.py"
     cb = AgentCallback(CALLBACK_URI)
-    cb.run()
+
+    try:
+        cb.run()
+        time.sleep(60*1)
+    except Exception as e:
+        print 'ERRR!!!! {}'.format(e)
+        time.sleep(60*5)

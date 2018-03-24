@@ -72,27 +72,31 @@ class SampleQueue:
                             get_samples(SAMPLES_DIR))
 
         if len(to_process) == 0:
-            app.logger.info('No samples left to process')
-            return None
+            app.logger.info('No samples left to process, exiting...')
+            sys.exit()
 
         print 'to process: {}'.format(len(to_process))
         return '{}/agent/get_sample/{}'.format(EXT_IF, random.choice(to_process))
 
 
 class VmManager:
-    def __init__(self, vm_name, snapshot_name, enabled=True):
+    def __init__(self, vm_name, enabled=True):
         self.vm_name = vm_name
-        self.snapshot_name = snapshot_name
         self.script_path = 'bash ../vbox-controller/vbox-ctrl.sh'
         self.enabled = enabled
+        self.blocking = False
+        self.logger = logging.getLogger(self.__class__.__name__)
 
     def call_ctrl_script(self, action):
         cmdline = "{} -v '{}' -s '{}' -a '{}'".format(self.script_path, self.vm_name,
-                                                      self.snapshot_name, action)
-        app.logger.info('[{}] calling {}'.format("LIVE" if self.enabled else "MOCK", cmdline))
+                                                      self.get_active_snapshot(), action)
+        self.logger.info('[{}] calling {}'.format("LIVE" if self.enabled else "MOCK", cmdline))
 
         if self.enabled:
-            return subprocess.Popen(cmdline, shell=True)
+            if self.blocking:
+                return subprocess.Popen(cmdline, shell=True).communicate()[0]
+            else:
+                subprocess.Popen(cmdline, shell=True)
 
     def restart(self):
         return self.call_ctrl_script('restart')
@@ -100,13 +104,18 @@ class VmManager:
     def restore_snapshot(self):
         return self.call_ctrl_script('restore')
 
+    def get_active_snapshot(self):
+        for vm_s in config.ACTIVE_VMS:
+            if self.vm_name == vm_s[0]:
+                return vm_s[1]
+
 
 class VmHeartbeat(Thread):
     def __init__(self):
         Thread.__init__(self)
         self.heartbeat_hash_name = 'heartbeat'
         self.curr_processing_hash_name = 'processing'
-        self.timeout_secs_limit = 10 * 60
+        self.timeout_secs_limit = config.VM_HEARTBEAT_TIMEOUT_MINS * 60
         self.poll_tm_secs = 60
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -115,12 +124,12 @@ class VmHeartbeat(Thread):
         r.hset(self.heartbeat_hash_name, vm_name, now)
         self.logger.info('set heartbeat for {} -> {}'.format(vm_name, now))
 
-    def set_processing(self, vm_name, sample):
-        r.hset(self.curr_processing_hash_name, vm_name, sample)
+    def set_processing(self, vm_name='', sample='', uuid='', run_id=''):
+        r.hset(self.curr_processing_hash_name, vm_name, '{}:{}:{}'.format(sample, uuid, run_id))
         self.logger.info('set {} processing {}'.format(vm_name, sample))
 
     def get_last_processed(self, vm_name):
-        return r.hget(self.curr_processing_hash_name, vm_name)
+        return r.hget(self.curr_processing_hash_name, vm_name).split(':')
 
     def is_timeout_expired(self, vm):
         idle_since = r.hget(self.heartbeat_hash_name, vm)
@@ -128,21 +137,21 @@ class VmHeartbeat(Thread):
         self.logger.info('{} idle for {}s'.format(vm, idle_secs))
         return idle_secs > self.timeout_secs_limit
 
-    def mark_bad_sample(self, vm, sample):
-        udir = os.path.join(UPLOADS_DIR, sample)
+    def create_bad_sample_metadata_json(self, vm, sample):
+        udir = os.path.join(UPLOADS_DIR, *sample)
         if not os.path.exists(udir):
             os.makedirs(udir)
 
-        # TODO: this needs to conform to normal flow 'run-0-metadata.json'
-        bad_f = os.path.join(udir, '{}.bad'.format(vm))
+        bad_f = os.path.join(udir, get_md_fn(sample[2]))
         with open(bad_f, 'w') as fd:
-            fd.write('nop')
+            fd.write(json.dumps({'status': 'ERR', 'status_msg':
+                                'Server side timeout, job scrubbed (timeout={})'.format(config.VM_HEARTBEAT_TIMEOUT_MINS)}))
 
-        self.logger.info('wrote {}'.format(bad_f))
+        self.logger.info('wrote scrub file {}'.format(bad_f))
 
     def reset(self):
         for vm, snapshot in ACTIVE_VMS:
-            self.set_processing(vm, '')
+            self.set_processing(vm)
             self.heartbeat(vm)
             self.logger.info('reset vm heartbeat and processing {}'.format(vm))
 
@@ -151,8 +160,8 @@ class VmHeartbeat(Thread):
             for vm, snapshot in ACTIVE_VMS:
                 if self.is_timeout_expired(vm):
                     self.logger.info('{} breached timeout limit, restoring...'.format(vm))
-                    self.mark_bad_sample(vm, self.get_last_processed(vm))
-                    VmManager(vm, snapshot).restore_snapshot()
+                    self.create_bad_sample_metadata_json(vm, self.get_last_processed(vm))
+                    VmManager(vm).restore_snapshot()
 
             time.sleep(self.poll_tm_secs)
 
@@ -174,11 +183,12 @@ def callback():
     print 'in callback - uuid: {} node: {}'.format(cb_uuid, node)
 
     resp['pack_url'] = EXTRACTOR_PACK_URL
-    resp['pack'] = 'pack-1'
+    resp['extractor-pack'] = 'pack-1'
 
     if resp['run_id'] == 0:
         sample_to_process = SampleQueue().get_sample_to_process()
-        VmHeartbeat().set_processing(node, sample_to_process.split('/')[-1])
+        sample_sha = sample_to_process.split('/')[-1].replace('.exe', '')
+        VmHeartbeat().set_processing(node, sample_sha, cb_uuid, 0)
 
         resp['sample_url'] = sample_to_process
         resp['action'] = 'init'
@@ -206,25 +216,35 @@ def get_upload_dir(*path_args):
     return upload_dir
 
 
-# TODO: This is too big!
+def get_md_fn(run_id):
+    return 'run-{}-meta.json'.format(run_id)
+
+
+# TODO: This is tOoOooo big!
 @app.route('/agent/upload/<sample>/<uuid>/<run_id>', methods=['GET', 'POST'])
 def upload_results(sample, uuid, run_id, force_one_run=True):
-
     upload_dir = get_upload_dir(UPLOADS_DIR, sample.replace('.exe', ''), uuid, run_id)
+
+    print json.dumps(request.form)
 
     for f in request.files:
         local_f = os.path.join(upload_dir, f)
         request.files[f].save(local_f)
         app.logger.info('wrote {}'.format(local_f))
 
-    metadata_f = 'run-{}-meta.json'.format(run_id)
+    metadata_f = get_md_fn(run_id)
     with open(os.path.join(upload_dir, metadata_f), 'w') as metadata:
         metadata.write(json.dumps(request.form, indent=4, sort_keys=True))
         app.logger.info('wrote {}'.format(metadata_f))
 
-    vm_mgr = VmManager(request.form['node'], 'autorun v0.2')
+    node_nm = get_form_param('node')
+    if node_nm is None:
+        app.logger.error('no node name')
+        return "ERR - no node name"
 
-    if not request.form['status'] in ['OK', 'WARN']:
+    vm_mgr = VmManager(get_form_param('node'))
+
+    if not get_form_param('status') in ['OK', 'WARN']:
         app.logger.info('error in run: {}:{}'.format(request.form['status'], request.form['status_msg']))
         vm_mgr.restore_snapshot()
         return "OK"
@@ -235,8 +255,6 @@ def upload_results(sample, uuid, run_id, force_one_run=True):
     else:
         app.logger.info('bouncing vm')
         vm_mgr.restart()
-
-    print json.dumps(request.form)
 
     return "OK"
 
@@ -250,12 +268,13 @@ def init(init_vms=True):
     setup_logging()
     if init_vms:
         for vm, snapshot in ACTIVE_VMS:
-            vm_mgr = VmManager(vm, snapshot)
+            vm_mgr = VmManager(vm)
             vm_mgr.restore_snapshot()
 
-    vm_hb = VmHeartbeat()
-    vm_hb.reset()
-    vm_hb.start()
+    if True:
+        vm_hb = VmHeartbeat()
+        vm_hb.reset()
+        vm_hb.start()
 
     app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
 

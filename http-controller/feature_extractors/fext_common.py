@@ -67,4 +67,4 @@ class FeatureSetsWriter:
         self.body['feature_sets'] = self.feature_sets
         create_dirs_if_not_exist(self.get_filename())
         with open(self.get_filename(), 'w') as fd:
-            fd.write(json.dumps(self.body))
+            fd.write(json.dumps(self.body, indent=4, sort_keys=True))

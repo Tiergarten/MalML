@@ -1,6 +1,7 @@
 from common import *
-from elasticsearch_dsl import Search
 import random
+from model_gen.mg_common import *
+import config
 
 
 class UploadSearch:
@@ -50,12 +51,15 @@ class SampleSearch:
 def get_labelled_sample_set(_feature_fam, _label, count, exclude=[]):
     ret = []
     labelled_samples = SampleSearch(label=_label).search()
-    for _sample in labelled_samples:
-        in_scope = UploadSearch(extractor_pack='pack-1', feature_fam=_feature_fam, sample=_sample)
-        ret.append(in_scope)
 
-    assert len(ret) >= count
-    return random.sample(ret, count)
+    for _sample in labelled_samples:
+        for result in UploadSearch(extractor_pack='pack-1', sample=_sample).search():
+            ret.append(result)
+
+    if len(ret) >= count:
+        return random.sample(ret, count)
+    else:
+        return []
 
 
 # TODO: source this from feature_extractors package
@@ -74,17 +78,15 @@ def get_feature_sets_from_family(ffamily):
 
 
 def generate_model(feature_fam):
-    corpus_sz = 500
+    corpus_sz = 10
     metadata = {}
 
     corpus_ids = get_labelled_sample_set(feature_fam, 'benign', corpus_sz / 2) + \
         get_labelled_sample_set(feature_fam, 'malware', corpus_sz / 2)
 
-    print corpus_ids
+    for sample in corpus_ids:
+        print sample
+
 
 if __name__ == '__main__':
-    fam_data = get_feature_family_data(
-        UploadSearch(sample='615cc5670435e88acb614c467d6dc9b09637f917f02f3b14cd8460d1ac6058ec').search()[0],
-        'ext-mem-rw-dump')
-
-    print get_feature_sets_from_family(fam_data)
+    generate_model('ext-mem-rw-dump')

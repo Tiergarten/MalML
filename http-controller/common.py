@@ -16,11 +16,19 @@ class DetonationUpload:
     def get_path(self, fn='', run_id=0):
         return os.path.join(self.upload_dir, self.sample, self.uuid, str(run_id), fn)
 
-    def get_metadata(self, run_id=0):
+    def get_metadata_path(self, run_id=0):
         return self.get_path('run-{}-meta.json'.format(run_id), run_id)
 
+    def get_metadata(self, run_id=0):
+        with open(self.get_metadata_path(run_id), 'r') as fd:
+            return json.loads(fd.read())
+
+    def isSuccess(self, run_id=0):
+        md = self.get_metadata(run_id)
+        return 'status' in md.keys() and md['status'] != "ERR"
+
     def get_output(self, run_id=0):
-        return self.get_path('aext-mem-rw-dump.out', run_id)
+        return self.get_path('aext-mem-rw-dump.out.gz', run_id)
 
     def __str__(self):
         return 'sample: {}, uuid: {}, run_ids: {}'.format(self.sample, self.uuid, self.run_ids)
@@ -42,8 +50,12 @@ def get_detonator_uploads(upload_dir):
 
     for sample in get_samples(upload_dir):
         for detonation_uuid in os.listdir(os.path.join(upload_dir, sample)):
-            run_ids = os.listdir(os.path.join(upload_dir, sample, detonation_uuid))
-            ret.append(DetonationUpload(upload_dir, sample, detonation_uuid, run_ids))
+            try:
+                run_ids = os.listdir(os.path.join(upload_dir, sample, detonation_uuid))
+                ret.append(DetonationUpload(upload_dir, sample, detonation_uuid, run_ids))
+            except:
+                print 'runs for {} in error state'.format(sample)
+                continue
 
     return ret
 
@@ -96,18 +108,10 @@ def push_upload_stats_elastic(json_dir=config.UPLOADS_DIR, _index=config.REDIS_C
     uploads = get_detonator_uploads(json_dir)
     for u in uploads:
         for r in u.run_ids:
-            with open(u.get_metadata(r), 'r') as fd:
-                _id = '{}-{}-{}'.format(u.sample, u.uuid, r)
-                j = json.loads(fd.read())
-
-                # TODO: I'm not sure if this should be here....
-                #j['feature_families'] = get_feature_families_produced_by_pack(j['extractor-pack'])
-
-                j['extractor_pack'] = 'pack-1'
-                j['feature_family'] = 'mem_rw_dump'
-
-                es.index(index=_index, doc_type=_doc_type, body=json.dumps(j), id=_id)
-                print 'wrote {}'.format(_id)
+            j = u.get_metadata(r)
+            _id = '{}-{}-{}'.format(u.sample, u.uuid, r)
+            es.index(index=_index, doc_type=_doc_type, body=json.dumps(j), id=_id)
+            print 'wrote {}'.format(_id)
 
 if __name__ == '__main__':
     push_upload_stats_elastic()

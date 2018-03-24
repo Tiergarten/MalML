@@ -65,21 +65,48 @@ class SampleImporter:
             with open(sample_md_path, 'r') as fd:
                 metadata = json.loads(fd.read())
 
-        # elastic doesn't like a list having 2 different types...
-        new_sections = []
-        for s in metadata['vti']['additional_info']['sections']:
-            new_sections.append([str(c) for c in s])
-        metadata['vti']['additional_info']['sections'] = new_sections
-
         if elastic:
-            self.write_sample_metadata_to_elastic(sample_nm, json.dumps(metadata))
+            self.write_sample_metadata_to_elastic(sample_nm, metadata)
 
-    def write_sample_metadata_to_elastic(self, sample_nm, json_str):
+    @staticmethod
+    def pre_process_json_for_elastic(metadata):
+        ret = metadata
+
+        # elastic doesn't like a list having 2 different types...
+        if 'additional_info' in ret['vti']:
+            if 'sections' in ret['vti']['additional_info']:
+                new_sections = []
+                for s in metadata['vti']['additional_info']['sections']:
+                    new_sections.append([str(c) for c in s])
+                ret['vti']['additional_info']['sections'] = new_sections
+
+            if 'rombioscheck' in ret['vti']['additional_info']:
+                if 'manufacturer_candidates' in ret['vti']['additional_info']['rombioscheck']:
+                    new_candidates = []
+                    for c in ret['vti']['additional_info']['rombioscheck']['manufacturer_candidates']:
+                        new_candidates.append([str(x) for x in c])
+                    ret['vti']['additional_info']['rombioscheck']['manufacturer_candidates'] = new_candidates
+
+        return ret
+
+    def write_sample_metadata_to_elastic(self, sample_nm, _metadata_dict):
+        metadata_dict = SampleImporter.pre_process_json_for_elastic(_metadata_dict)
+
         es = get_elastic()
         es.index(index=config.REDIS_CONF_SAMPLES[0], doc_type=config.REDIS_CONF_SAMPLES[1],
-                 body=json_str, id=sample_nm)
+                 body=json.dumps(metadata_dict), id=sample_nm)
 
         print 'wrote {} -> elastic'.format(sample_nm)
+
+    def sync_master_with_elastic(self):
+        files = [f for f in os.listdir(self.master_sample_dir) if re.match(r'^[A-Za-z0-9]{64}.json$', f, re.MULTILINE)]
+        print 'files: {}'.format(files)
+        print 'beep'
+        for f in files:
+            sample_md_path = os.path.join(self.master_sample_dir, f)
+            with open(sample_md_path, 'r') as fd:
+                metadata = json.loads(fd.read())
+                self.write_sample_metadata_to_elastic(f.replace('.json', ''), metadata)
 
     def copy_input_sample_to_master(self, sample):
         shutil.copyfile(os.path.join(self.input_sample_dir, sample),
@@ -88,7 +115,7 @@ class SampleImporter:
     def import_samples(self, sample_src, sample_label, elastic=False):
         # Rename to sha256
         for f in os.listdir(self.input_sample_dir):
-            if not is_sha256_fn(f):
+            if not is_sha256_fn(f) and not f.endswith('.txt'):
                 sample = os.path.join(self.input_sample_dir, f)
                 target = os.path.join(self.input_sample_dir, sha256_checksum(sample))
                 shutil.move(sample, target)
@@ -112,6 +139,7 @@ class SampleEnqueuer(threading.Thread):
         if len(to_process) == 0:
             return
 
+        # TODO: Look @ elastic to see what we've already processed...
         for sample in to_process:
             for vm in get_active_vms():
                 for pack in get_active_packs(vm):
@@ -139,10 +167,10 @@ if __name__ == '__main__':
     source = ''
     label = ''
     input_dir = ''
-    do_queue = False
+    existing_only = False
 
-    opts, remaining = getopt.getopt(sys.argv[1:], 'mqs:l:i:',
-                                    ['metadata, queue-samples', 'source', 'label', 'input-dir'])
+    opts, remaining = getopt.getopt(sys.argv[1:], 'mqs:l:i:e',
+                                    ['metadata, queue-samples', 'source', 'label', 'input-dir', 'existing'])
 
     for opt, arg in opts:
         if opt in ('-m', '--metadata'):
@@ -153,12 +181,15 @@ if __name__ == '__main__':
             label = arg
         if opt in ('-i', '--input-dir'):
             input_dir = arg
-        if opt in ('-q', '--queue-samples'):
-            do_queue = True
+        if opt in ('-e', '--existing'):
+            existing_only = True
 
     # TODO: sync option, to take all json from samples -> elastic!
 
-    if do_import:
+    if existing_only:
+        si = SampleImporter('', config.SAMPLES_DIR)
+        si.sync_master_with_elastic()
+    elif do_import:
         assert len(source) > 1 and len(input_dir) > 1 and len(label) > 1
 
         print 'importing samples {} -> {}'.format(input_dir, config.SAMPLES_DIR)
@@ -166,6 +197,3 @@ if __name__ == '__main__':
 
         si = SampleImporter(input_dir, config.SAMPLES_DIR)
         si.import_samples(source, label, elastic=True)
-
-    if do_queue:
-        pass

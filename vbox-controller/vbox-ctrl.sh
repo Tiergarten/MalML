@@ -20,11 +20,25 @@ function manage() {
 function stopVm() {
 	local vmName=$1
 
+    info "Sending stop signal to vm ${vmName}"
 	manage controlvm ${vmName} acpipowerbutton
 
+    counter=0
 	while [[ $(isRunning ${vmName}) == "1" ]]; do
+
+	    if [[ "${counter}" -gt 15 ]]; then
+	        info "failed to stop vm ${vmName}"
+	        exit 1
+	    fi
+
+	    if [[ "${counter}" -ne 0 && $((${counter} % 5)) == 0 ]];then
+	        info "Re-sending stop signal to vm ${vmName} after ${counter} sleeps..."
+	        manage controlvm ${vmName} acpipowerbutton
+        fi
+
 		info "Polling for shutdown of ${vmName}..."
-		sleep 5s
+		sleep 10s
+		counter=$((counter+1))
 	done
 
 	info "${vmName} stopped"
