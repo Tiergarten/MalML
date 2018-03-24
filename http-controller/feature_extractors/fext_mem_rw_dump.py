@@ -161,21 +161,21 @@ class FextMemRwDump:
 
                     # Split mem access into chunks, and calculate the mem access delta (from first in chunk)
                     chunk_tgt_deltas = FextMemRwDump.get_chunk_mem_deltas(df, instr_chunk_sz, mode)
-                    print 'chunk deltas: %s' % chunk_tgt_deltas
+                    #print 'chunk deltas: %s' % chunk_tgt_deltas
 
                     # Produce histogram
                     divisions, counts = FextMemRwDump.get_histogram(chunk_tgt_deltas, feature_name, self.feature_set_writer)
                     # TODO: We don't want to write scientific notation
                     self.feature_set_writer.write_feature_set(feature_name, counts.tolist())
 
-                    print "a: %s" % (type(counts.tolist()[0]))
-                    print 'histogram buckets: %s' % divisions
-                    print 'histogram counts: %s' % counts
-                    print '--'
+                    #print "a: %s" % (type(counts.tolist()[0]))
+                    #print 'histogram buckets: %s' % divisions
+                    #print 'histogram counts: %s' % counts
+                    #print '--'
 
         self.feature_set_writer.write_feature_sets()
 
 if __name__ == '__main__':
-    feature_set_writer = FeatureSetsWriter("traceme.exe", 0, EXTRACTOR_NAME, __version__)
+    feature_set_writer = FeatureSetsWriter('', "traceme.exe", 0, EXTRACTOR_NAME, __version__)
     fmrd = FextMemRwDump(feature_set_writer)
     fmrd.run('aext-mem-rw-dump.out')

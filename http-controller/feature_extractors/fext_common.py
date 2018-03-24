@@ -1,8 +1,10 @@
+import os
 import json
 import gzip
 
 from json import encoder
 encoder.FLOAT_REPR = lambda o: format(o, '.2f')
+
 
 def pp_pin_output(output):
     ret = []
@@ -22,19 +24,29 @@ def get_pintool_output(fn):
         with open(fn, 'r') as fd:
             return pp_pin_output(fd.readlines())
 
+
+def create_dirs_if_not_exist(path):
+    try:
+        os.makedirs(os.path.dirname(path))
+    except:
+        pass
+
+
 class FeatureSetsWriter:
-    def __init__(self, sample_id, run_id, feature_set_name, feature_set_ver):
+    def __init__(self, output_dir, sample_id, run_id, feature_set_name, feature_set_ver):
         self.body = {}
         self.feature_sets = {}
 
+        self.output_dir = output_dir
         self.body['sample_id'] = sample_id
         self.body['run_id'] = run_id
         self.body['feature_set_name'] = feature_set_name
         self.body['feature_set_ver'] = feature_set_ver
 
+
     def get_filename(self):
-        return '{}-{}-{}-{}'.format(self.body['sample_id'], self.body['run_id'], self.body['feature_set_name'],
-                                    self.body['feature_set_ver'])
+        fn = '{}-{}.json'.format(self.body['feature_set_name'], self.body['feature_set_ver'])
+        return os.path.join(self.output_dir, self.body['sample_id'], self.body['run_id'], fn)
 
     def init_feature_sets(self, feature_name):
         if feature_name not in self.feature_sets:
@@ -53,6 +65,6 @@ class FeatureSetsWriter:
 
     def write_feature_sets(self):
         self.body['feature_sets'] = self.feature_sets
-        print json.dumps(self.body)
+        create_dirs_if_not_exist(self.get_filename())
         with open(self.get_filename(), 'w') as fd:
             fd.write(json.dumps(self.body))

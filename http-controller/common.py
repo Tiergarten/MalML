@@ -2,9 +2,11 @@ import os
 import re
 from elasticsearch import Elasticsearch
 import config
+import json
+import hashlib
 
 
-class DetonatorUpload:
+class DetonationUpload:
     def __init__(self, upload_dir, sample, uuid, run_ids):
         self.upload_dir = upload_dir
         self.sample = sample
@@ -24,30 +26,87 @@ class DetonatorUpload:
         return 'sample: {}, uuid: {}, run_ids: {}'.format(self.sample, self.uuid, self.run_ids)
 
 
+class DetonationMetadata:
+    def __init__(self, detonation):
+        self. detonation = detonation
+
+    def get_node(self):
+        pass
+
+    def get_extractor(self):
+        return 'pack-1'
+
+
 def get_detonator_uploads(upload_dir):
     ret = []
 
     for sample in get_samples(upload_dir):
         for detonation_uuid in os.listdir(os.path.join(upload_dir, sample)):
             run_ids = os.listdir(os.path.join(upload_dir, sample, detonation_uuid))
-            ret.append(DetonatorUpload(upload_dir, sample, detonation_uuid, run_ids))
+            ret.append(DetonationUpload(upload_dir, sample, detonation_uuid, run_ids))
 
     return ret
 
 
 def get_samples(samples_dir):
-    return [f for f in os.listdir(samples_dir) if re.match(r'^[A-Za-z0-9]{64}$', f, re.MULTILINE)]
+    return [f for f in os.listdir(samples_dir) if is_sha256_fn(f)]
 
 
-def push_upload_stats_elastic(json_dir=config.UPLOADS_DIR, _index='malml', _doc_type='upload_metadata'):
-    es = Elasticsearch()
+def is_sha256_fn(fn):
+    return re.match(r'^[A-Za-z0-9]{64}$', fn, re.MULTILINE)
+
+
+def get_elastic():
+    return Elasticsearch()
+
+
+def get_active_vms():
+    return ['win7_sp1_ent-dec_2011_vm1']
+
+
+def get_active_packs(vm):
+    packs_per_vm = {'win7_sp1_ent-dec_2011_vm1': ['pack-1']}
+    return packs_per_vm[vm]
+
+
+def sha256_checksum(filename, block_size=65536):
+    sha256 = hashlib.sha256()
+    with open(filename, 'rb') as f:
+        for block in iter(lambda: f.read(block_size), b''):
+            sha256.update(block)
+    return sha256.hexdigest()
+
+
+def get_feature_families_produced_by_pack(pack_nm):
+    if pack_nm == 'pack-1':
+        return ['mem_rw_dump']
+
+
+def create_dirs_if_not_exist(path):
+    try:
+        os.makedirs(path)
+    except:
+        pass
+
+
+def push_upload_stats_elastic(json_dir=config.UPLOADS_DIR, _index=config.REDIS_CONF_UPLOADS[0],
+                              _doc_type=config.REDIS_CONF_UPLOADS[1]):
+    es = get_elastic()
 
     uploads = get_detonator_uploads(json_dir)
     for u in uploads:
         for r in u.run_ids:
             with open(u.get_metadata(r), 'r') as fd:
                 _id = '{}-{}-{}'.format(u.sample, u.uuid, r)
-                es.index(index=_index, doc_type=_doc_type, body=fd.read(), id=_id)
+                j = json.loads(fd.read())
+
+                # TODO: I'm not sure if this should be here....
+                #j['feature_families'] = get_feature_families_produced_by_pack(j['extractor-pack'])
+
+                j['extractor_pack'] = 'pack-1'
+                j['feature_family'] = 'mem_rw_dump'
+
+                es.index(index=_index, doc_type=_doc_type, body=json.dumps(j), id=_id)
                 print 'wrote {}'.format(_id)
 
 if __name__ == '__main__':

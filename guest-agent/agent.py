@@ -100,6 +100,7 @@ class ExtractorPackManager:
 
     def download_pack(self):
         local_fn = self.pack_uri.split('/')[-1]
+        self.meta_data['extractor-pack'] = local_fn
         local_fn_w_ext = local_fn + '.zip'
         self.pack_path = 'extracted-' + local_fn
 
