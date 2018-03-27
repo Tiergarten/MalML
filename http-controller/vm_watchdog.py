@@ -17,14 +17,18 @@ r = redis.Redis(host=config.REDIS_HOST, port=config.REDIS_PORT)
 class VmWatchDog:
     def __init__(self, vm_name):
         self.vm_name = vm_name
-        # TODO: remove below, and push onto redis isntead...
-        self.mgr = VboxManager(vm_name)
 
     def reset(self):
-        self.mgr.restart()
+        r.rpush('vmwatchdog:win7workstation', json.dumps({
+            'vm_name': self.vm_name,
+            'action': 'reset'
+        }))
 
     def restore(self):
-        self.mgr.restore_snapshot()
+        r.rpush('vmwatchdog:win7workstation', json.dumps({
+            'vm_name': self.vm_name,
+            'action': 'restore'
+        }))
 
     def heartbeat(self):
         VmHeartbeat().heartbeat(self.vm_name)
@@ -48,37 +52,65 @@ class VmWatchdogService(threading.Thread):
         threading.Thread.__init__(self)
         self.logger = logging.getLogger(self.__class__.__name__)
         self.instance_name = 'win7workstation'
+        self.queue_name = 'vmwatchdog:{}'.format(self.instance_name)
+
+        self.threads = {}
+        self.queues = {}
 
         for vm, snapshot in config.ACTIVE_VMS:
-            self.queues['vm'] = Queue()
+            self.queues[vm] = Queue()
+
+        r.delete(self.queue_name)
 
     def run(self):
+        try:
+            self._run()
+        except Exception as e:
+            self.logger.error(e)
+
+    def _run(self):
+        for vm, snapshot in config.ACTIVE_VMS:
+            self.logger.info('Starting vm mgr for {}'.format(vm))
+            self.threads[vm] = VboxManager(vm, self.queues[vm])
+            self.threads[vm].start()
+
+        self.logger.info('Entering polling loop...')
         while True:
-            # Pull msg from redis queue
-            # Work out recipient
-            # Send to appropriate queue
+            self.logger.info('polling...')
+
+            raw = r.blpop(self.queue_name, 60)
+            if raw is None:
+                continue
+
+            queue, msg = raw
+            self.logger.info('recevied: {}'.format(msg))
+            jmsg = json.loads(msg)
+
+            vm_name = jmsg['vm_name']
+            VmWatchDog(vm_name).clear_processing()
+            self.queues[vm_name].put('restore')
 
 
-# Watches for VM's which haven't responded in a while
-class VboxManager:
-    def __init__(self, vm_name, enabled=True):
+class VboxManager(threading.Thread):
+    def __init__(self, vm_name, queue):
+        threading.Thread.__init__(self)
         self.vm_name = vm_name
         self.script_path = 'bash ../vbox-controller/vbox-ctrl.sh'
-        self.enabled = enabled
+        self.queue = queue
         self.blocking = True
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger = logging.getLogger('{}_{}'.format(self.__class__.__name__, self.vm_name))
+
 
     def call_ctrl_script(self, action):
         cmdline = "{} -v '{}' -s '{}' -a '{}'".format(self.script_path, self.vm_name,
                                                       self.get_active_snapshot(), action)
 
-        self.logger.info('[{}] calling {}'.format("LIVE" if self.enabled else "MOCK", cmdline))
+        self.logger.info('calling {}'.format(cmdline))
 
-        if self.enabled:
-            if self.blocking:
-                return subprocess.Popen(cmdline, shell=True).communicate()[0]
-            else:
-                subprocess.Popen(cmdline, shell=True)
+        if self.blocking:
+            return subprocess.Popen(cmdline, shell=True).communicate()[0]
+        else:
+            subprocess.Popen(cmdline, shell=True)
 
     def restart(self):
         return self.call_ctrl_script('restart')
@@ -90,6 +122,18 @@ class VboxManager:
         for vm_s in config.ACTIVE_VMS:
             if self.vm_name == vm_s[0]:
                 return vm_s[1]
+
+    def run(self):
+        try:
+            self._run()
+        except Exception as e:
+            self.logger.error(e)
+
+    def _run(self):
+        while True:
+            self.logger.info('polling... ({})'.format(self.queue.qsize()))
+            msg = self.queue.get()
+            self.restore_snapshot()
 
 
 class VmHeartbeat(threading.Thread):
@@ -140,7 +184,8 @@ class VmHeartbeat(threading.Thread):
                     if last_processing != '::':
                         self.create_bad_sample_metadata_json(*last_processing.split(':'))
                         self.set_processing(vm)
-                    VboxManager(vm).restore_snapshot()
+
+                    VmWatchDog(vm).restore()
 
             time.sleep(self.poll_tm_secs)
 

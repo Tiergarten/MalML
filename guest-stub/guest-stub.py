@@ -1,6 +1,6 @@
 import os
 import urllib
-from subprocess import Popen, PIPE
+import subprocess
 import time
 import requests
 
@@ -27,10 +27,13 @@ def exec_agent(agent_path):
     proc = Popen(cmd, stdout=PIPE)
     out, err = proc.communicate()
 
-    post_data = { 'exit_code': proc.returncode, 'output': out }
+    ps = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    out = ps.communicate()
 
     if out.returncode != 0:
+        post_data = {'exit_code': proc.returncode, 'output': out}
         r = requests.post(ERR_URI, data=post_data)
+
 
 if __name__ == '__main__':
     time.sleep(10)

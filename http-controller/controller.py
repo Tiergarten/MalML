@@ -74,8 +74,9 @@ class SampleQueue:
             app.logger.warn('No samples left to process...')
             return None
 
-        print 'to process: {}'.format(len(to_process))
+        app.logger.info('to process: {}'.format(len(to_process)))
         return '{}/agent/get_sample/{}'.format(EXT_IF, random.choice(to_process))
+
 
 @app.before_request
 def before_request():
@@ -91,7 +92,7 @@ def callback():
     node = get_form_param('node')
 
     cb_uuid, resp = update_callback_details(cb_uuid)
-    print 'in callback - uuid: {} node: {}'.format(cb_uuid, node)
+    app.logger.info('in callback - uuid: {} node: {}'.format(cb_uuid, node))
 
     resp['pack_url'] = EXTRACTOR_PACK_URL
     resp['extractor-pack'] = 'pack-1'
@@ -144,27 +145,23 @@ def vm_action(vm_name, action):
         VmWatchDog(vm_name).rest()
 
 
-# TODO: This is tOoOooo big!
 @app.route('/agent/upload/<sample>/<uuid>/<run_id>', methods=['GET', 'POST'])
 def upload_results(sample, uuid, run_id, force_one_run=True):
-    upload_dir = get_upload_dir(UPLOADS_DIR, sample.replace('.exe', ''), uuid, run_id)
+    du = DetonationUpload(UPLOADS_DIR, sample.replace('.exe', ''), uuid, [run_id])
 
     for f in request.files:
-        local_f = os.path.join(upload_dir, f)
-        request.files[f].save(local_f)
-        app.logger.info('wrote {}'.format(local_f))
+        request.files[f].save(du.get_path(f))
+        app.logger.info('wrote {}'.format(du.get_path(f)))
 
-    metadata_f = get_md_fn(run_id)
-    with open(os.path.join(upload_dir, metadata_f), 'w') as metadata:
-        metadata.write(json.dumps(request.form, indent=4, sort_keys=True))
-        app.logger.info('wrote {}'.format(metadata_f))
+    du.write_metadata(json.dumps(request.form, indent=4, sort_keys=True))
+    app.logger.info('wrote {}'.format(du.get_metadata_path(run_id)))
 
-    node_nm = get_form_param('node')
-    if node_nm is None:
-        app.logger.error('no node name')
-        return "ERR - no node name"
+    detonation_upload_to_es(du, run_id)
 
     vm_name = get_form_param('node')
+    if vm_name is None:
+        app.logger.error('no node name')
+        return "ERR - no node name"
 
     VmWatchDog(vm_name).clear_processing()
 
@@ -209,7 +206,10 @@ def init():
     app.logger.addHandler(console_log_handler)
 
     app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
-    VmWatchDog.init()
+
+    for vm, snapshot in config.ACTIVE_VMS:
+        VmWatchDog(vm).clear_processing()
+        VmWatchDog(vm).restore()
 
 
 if __name__ == '__main__':

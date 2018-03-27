@@ -17,6 +17,8 @@ class DetonationUpload:
         self.uuid = uuid
         self.run_ids = run_ids
 
+        create_dirs_if_not_exist(os.path.dirname(self.get_path()))
+
     def get_path(self, fn='', run_id=0):
         return os.path.join(self.upload_dir, self.sample, self.uuid, str(run_id), fn)
 
@@ -36,6 +38,13 @@ class DetonationUpload:
 
     def __str__(self):
         return 'sample: {}, uuid: {}, run_ids: {}'.format(self.sample, self.uuid, self.run_ids)
+
+    def write_metadata(self, md_body, run_id=0):
+        with open(self.get_metadata_path(run_id), 'w') as md:
+            md.write(md_body)
+
+    def write_upload(self, upload_body):
+        pass
 
 
 class DetonationMetadata:
@@ -127,17 +136,20 @@ def setup_logging(log_fn):
     return file_log_handler, console_log_handler
 
 
-def push_upload_stats_elastic(json_dir=config.UPLOADS_DIR, _index=config.REDIS_CONF_UPLOADS[0],
-                              _doc_type=config.REDIS_CONF_UPLOADS[1]):
+def detonation_upload_to_es(detonation_upload, run_id):
     es = get_elastic()
+    _id = '{}-{}-{}'.format(detonation_upload.sample, detonation_upload.uuid, run_id)
+    es.index(index=config.REDIS_CONF_UPLOADS[0], doc_type=config.REDIS_CONF_UPLOADS[1],
+             body=json.dumps(detonation_upload.get_metadata(run_id)), id=_id)
+    print 'wrote -> elastic {}'.format(_id)
 
+
+def push_upload_stats_elastic(json_dir=config.UPLOADS_DIR):
     uploads = get_detonator_uploads(json_dir)
     for u in uploads:
         for r in u.run_ids:
-            j = u.get_metadata(r)
-            _id = '{}-{}-{}'.format(u.sample, u.uuid, r)
-            es.index(index=_index, doc_type=_doc_type, body=json.dumps(j), id=_id)
-            print 'wrote {}'.format(_id)
+            detonation_upload_to_es(u, r)
+
 
 if __name__ == '__main__':
     push_upload_stats_elastic()
