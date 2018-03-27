@@ -10,12 +10,11 @@ import redis
 from threading import Thread
 from config import *
 import logging
-from logging.handlers import TimedRotatingFileHandler
 import sys
 from common import *
+from vm_watchdog import VmWatchDog
 
 app = Flask(__name__)
-r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT)
 
 # TODO: Move this to redis
 uuid_run_map = {}
@@ -72,105 +71,17 @@ class SampleQueue:
                             get_samples(SAMPLES_DIR))
 
         if len(to_process) == 0:
-            app.logger.info('No samples left to process, exiting...')
-            sys.exit()
+            app.logger.warn('No samples left to process...')
+            return None
 
         print 'to process: {}'.format(len(to_process))
         return '{}/agent/get_sample/{}'.format(EXT_IF, random.choice(to_process))
-
-
-class VmManager:
-    def __init__(self, vm_name, enabled=True):
-        self.vm_name = vm_name
-        self.script_path = 'bash ../vbox-controller/vbox-ctrl.sh'
-        self.enabled = enabled
-        self.blocking = False
-        self.logger = logging.getLogger(self.__class__.__name__)
-
-    def call_ctrl_script(self, action):
-        cmdline = "{} -v '{}' -s '{}' -a '{}'".format(self.script_path, self.vm_name,
-                                                      self.get_active_snapshot(), action)
-        self.logger.info('[{}] calling {}'.format("LIVE" if self.enabled else "MOCK", cmdline))
-
-        if self.enabled:
-            if self.blocking:
-                return subprocess.Popen(cmdline, shell=True).communicate()[0]
-            else:
-                subprocess.Popen(cmdline, shell=True)
-
-    def restart(self):
-        return self.call_ctrl_script('restart')
-
-    def restore_snapshot(self):
-        return self.call_ctrl_script('restore')
-
-    def get_active_snapshot(self):
-        for vm_s in config.ACTIVE_VMS:
-            if self.vm_name == vm_s[0]:
-                return vm_s[1]
-
-
-class VmHeartbeat(Thread):
-    def __init__(self):
-        Thread.__init__(self)
-        self.heartbeat_hash_name = 'heartbeat'
-        self.curr_processing_hash_name = 'processing'
-        self.timeout_secs_limit = config.VM_HEARTBEAT_TIMEOUT_MINS * 60
-        self.poll_tm_secs = 60
-        self.logger = logging.getLogger(self.__class__.__name__)
-
-    def heartbeat(self, vm_name):
-        now = time.time()
-        r.hset(self.heartbeat_hash_name, vm_name, now)
-        self.logger.info('set heartbeat for {} -> {}'.format(vm_name, now))
-
-    def set_processing(self, vm_name='', sample='', uuid='', run_id=''):
-        r.hset(self.curr_processing_hash_name, vm_name, '{}:{}:{}'.format(sample, uuid, run_id))
-        self.logger.info('set {} processing {}'.format(vm_name, sample))
-
-    def get_last_processed(self, vm_name):
-        return r.hget(self.curr_processing_hash_name, vm_name).split(':')
-
-    def is_timeout_expired(self, vm):
-        idle_since = r.hget(self.heartbeat_hash_name, vm)
-        idle_secs = (datetime.now() - datetime.fromtimestamp(float(idle_since))).seconds
-        self.logger.info('{} idle for {}s'.format(vm, idle_secs))
-        return idle_secs > self.timeout_secs_limit
-
-    def create_bad_sample_metadata_json(self, vm, sample):
-        udir = os.path.join(UPLOADS_DIR, *sample)
-        if not os.path.exists(udir):
-            os.makedirs(udir)
-
-        bad_f = os.path.join(udir, get_md_fn(sample[2]))
-        with open(bad_f, 'w') as fd:
-            fd.write(json.dumps({'status': 'ERR', 'status_msg':
-                                'Server side timeout, job scrubbed (timeout={})'.format(config.VM_HEARTBEAT_TIMEOUT_MINS)}))
-
-        self.logger.info('wrote scrub file {}'.format(bad_f))
-
-    def reset(self):
-        for vm, snapshot in ACTIVE_VMS:
-            self.set_processing(vm)
-            self.heartbeat(vm)
-            self.logger.info('reset vm heartbeat and processing {}'.format(vm))
-
-    def run(self):
-        while True:
-            for vm, snapshot in ACTIVE_VMS:
-                if self.is_timeout_expired(vm):
-                    self.logger.info('{} breached timeout limit, restoring...'.format(vm))
-                    self.create_bad_sample_metadata_json(vm, self.get_last_processed(vm))
-                    VmManager(vm).restore_snapshot()
-
-            time.sleep(self.poll_tm_secs)
-
 
 @app.before_request
 def before_request():
     node = get_form_param('node')
     if node is not None:
-        VmHeartbeat().heartbeat(node)
+        VmWatchDog(node).heartbeat()
 
 
 # TODO: Run_id & action needs to be done per extractor?!
@@ -187,8 +98,11 @@ def callback():
 
     if resp['run_id'] == 0:
         sample_to_process = SampleQueue().get_sample_to_process()
+        if sample_to_process is None:
+            return "OK"
+
         sample_sha = sample_to_process.split('/')[-1].replace('.exe', '')
-        VmHeartbeat().set_processing(node, sample_sha, cb_uuid, 0)
+        VmWatchDog(node).set_processing(sample_sha, cb_uuid, 0)
 
         resp['sample_url'] = sample_to_process
         resp['action'] = 'init'
@@ -220,12 +134,20 @@ def get_md_fn(run_id):
     return 'run-{}-meta.json'.format(run_id)
 
 
+def vm_action(vm_name, action):
+    if SampleQueue().get_sample_to_process() is None:
+        return
+
+    if action == 'restore':
+        VmWatchDog(vm_name).restore()
+    elif action == 'reset':
+        VmWatchDog(vm_name).rest()
+
+
 # TODO: This is tOoOooo big!
 @app.route('/agent/upload/<sample>/<uuid>/<run_id>', methods=['GET', 'POST'])
 def upload_results(sample, uuid, run_id, force_one_run=True):
     upload_dir = get_upload_dir(UPLOADS_DIR, sample.replace('.exe', ''), uuid, run_id)
-
-    print json.dumps(request.form)
 
     for f in request.files:
         local_f = os.path.join(upload_dir, f)
@@ -242,20 +164,37 @@ def upload_results(sample, uuid, run_id, force_one_run=True):
         app.logger.error('no node name')
         return "ERR - no node name"
 
-    vm_mgr = VmManager(get_form_param('node'))
+    vm_name = get_form_param('node')
+
+    VmWatchDog(vm_name).clear_processing()
 
     if not get_form_param('status') in ['OK', 'WARN']:
         app.logger.info('error in run: {}:{}'.format(request.form['status'], request.form['status_msg']))
-        vm_mgr.restore_snapshot()
+        vm_action(vm_name, 'restore')
         return "OK"
 
     if int(request.form['runs-left']) <= 0 or force_one_run:
         app.logger.info('no runs left, restoring vm to snapshot')
-        vm_mgr.restore_snapshot()
+        vm_action(vm_name, 'restore')
     else:
         app.logger.info('bouncing vm')
-        vm_mgr.restart()
+        vm_action(vm_name, 'reset')
 
+    return "OK"
+
+
+@app.route('/agent/error/<sample>/<uuid>/<run_id>', methods=['GET', 'POST'])
+def agent_error(sample, uuid, run_id):
+    upload_dir = get_upload_dir(UPLOADS_DIR, sample.replace('.exe', ''), uuid, run_id)
+
+    md = {}
+    set_run_status(md, get_form_param('status'), get_form_param('status_msg'))
+    metadata_f = get_md_fn(run_id)
+    with open(os.path.join(upload_dir, metadata_f), 'w') as metadata:
+        metadata.write(json.dumps(request.form, indent=4, sort_keys=True))
+        app.logger.info('wrote {}'.format(metadata_f))
+
+    app.logger.info('wrote error file {}'.format(metadata_f))
     return "OK"
 
 
@@ -264,38 +203,13 @@ def get_sample(sha256):
     return send_from_directory(SAMPLES_DIR, sha256)
 
 
-def init(init_vms=True):
-    setup_logging()
-    if init_vms:
-        for vm, snapshot in ACTIVE_VMS:
-            vm_mgr = VmManager(vm)
-            vm_mgr.restore_snapshot()
-
-    if True:
-        vm_hb = VmHeartbeat()
-        vm_hb.reset()
-        vm_hb.start()
-
-    app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
-
-
-def setup_logging():
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-
-    file_log_handler = TimedRotatingFileHandler('controller.log', when='D')
-    file_log_handler.setLevel(logging.INFO)
-    file_log_handler.setFormatter(formatter)
-
-    console_log_handler = logging.StreamHandler(sys.stdout)
-    console_log_handler.setFormatter(formatter)
-
-    root = logging.getLogger()
-    root.setLevel(logging.INFO)
-    root.addHandler(file_log_handler)
-    root.addHandler(console_log_handler)
-
+def init():
+    file_log_handler, console_log_handler = setup_logging('controller.log')
     app.logger.addHandler(file_log_handler)
     app.logger.addHandler(console_log_handler)
+
+    app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
+    VmWatchDog.init()
 
 
 if __name__ == '__main__':

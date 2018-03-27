@@ -24,4 +24,4 @@ FEATURES_DIR = 'features/'
 REDIS_CONF_SAMPLES = ('malml-sample', 'metadata')
 REDIS_CONF_UPLOADS = ('malml-upload', 'metadata')
 
-VM_HEARTBEAT_TIMEOUT_MINS = 4
+VM_HEARTBEAT_TIMEOUT_MINS = 8

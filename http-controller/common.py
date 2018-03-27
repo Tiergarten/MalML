@@ -4,6 +4,10 @@ from elasticsearch import Elasticsearch
 import config
 import json
 import hashlib
+import logging
+from logging.handlers import TimedRotatingFileHandler
+import os
+import sys
 
 
 class DetonationUpload:
@@ -99,6 +103,28 @@ def create_dirs_if_not_exist(path):
         os.makedirs(path)
     except:
         pass
+
+def set_run_status(json, status, msg):
+    json['status'] = status
+    json['status_msg'] = msg
+
+
+def setup_logging(log_fn):
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+
+    file_log_handler = TimedRotatingFileHandler(log_fn, when='D')
+    file_log_handler.setLevel(logging.INFO)
+    file_log_handler.setFormatter(formatter)
+
+    console_log_handler = logging.StreamHandler(sys.stdout)
+    console_log_handler.setFormatter(formatter)
+
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    root.addHandler(file_log_handler)
+    root.addHandler(console_log_handler)
+
+    return file_log_handler, console_log_handler
 
 
 def push_upload_stats_elastic(json_dir=config.UPLOADS_DIR, _index=config.REDIS_CONF_UPLOADS[0],

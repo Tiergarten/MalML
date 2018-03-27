@@ -29,7 +29,7 @@ CONTROLLER = "http://192.168.1.145:5000"
 CALLBACK_URI = "{}/agent/callback".format(CONTROLLER)
 UPLOAD_URI = "{}/agent/upload".format(CONTROLLER)
 INSTALL_DIR = '.'
-EXEC_TIMEOUT_MINS = 3
+EXEC_TIMEOUT_MINS = 5
 
 
 class MyURLopener(urllib.FancyURLopener):
@@ -239,7 +239,7 @@ class ExtractorPackManager:
             parent.kill()
         except:
             pass
-        self.meta_data['INFO'] = 'breached_timeout'
+        self.set_run_status(self.meta_data, 'WARN', 'breached agent timeout ({}m)'.format(EXEC_TIMEOUT_MINS))
 
     def get_manifest(self, path):
         mfile = os.path.join(path, 'manifest')
