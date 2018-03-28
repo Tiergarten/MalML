@@ -27,10 +27,11 @@ class UploadSearch:
 
 
 class SampleSearch:
-    def __init__(self, label=None, arch=None, source=None):
+    def __init__(self, label=None, arch=None, source=None, sample=None):
         self._label = label
         self._arch = arch
         self._source = source
+        self._sample = sample
 
     @staticmethod
     def s():
@@ -44,6 +45,8 @@ class SampleSearch:
             ret = ret.filter('match', arch=self._arch)
         if self._source is not None:
             ret = ret.filter('match', source=self._source)
+        if self._sample is not None:
+            ret = ret.filter('match', sample=self._sample)
 
         return ret.execute()
 
