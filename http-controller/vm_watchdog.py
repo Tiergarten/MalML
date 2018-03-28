@@ -190,6 +190,10 @@ class VmHeartbeat(threading.Thread):
             time.sleep(self.poll_tm_secs)
 
 if __name__ == '__main__':
+
+    for vm, snapshot in config.ACTIVE_VMS:
+        VmWatchDog(vm).heartbeat()
+
     common.setup_logging('vm-watchdog.log')
     print 'starting heartbeat thread...'
     heartbeat_thread = VmHeartbeat().start()

@@ -16,6 +16,7 @@ import hashlib
 import shutil
 
 from common import *
+import collections
 
 http_headers = {
         "Accept-Encoding": "gzip, deflate",
@@ -66,7 +67,11 @@ class SampleImporter:
                 metadata = json.loads(fd.read())
 
         if elastic:
-            self.write_sample_metadata_to_elastic(sample_nm, metadata)
+            try :
+                self.write_sample_metadata_to_elastic(sample_nm, metadata)
+            except Exception as e:
+                print 'WARN: {}'.format(e)
+
 
     @staticmethod
     def pre_process_json_for_elastic(metadata):
@@ -87,11 +92,30 @@ class SampleImporter:
                         new_candidates.append([str(x) for x in c])
                     ret['vti']['additional_info']['rombioscheck']['manufacturer_candidates'] = new_candidates
 
+        # elastic doesn't cope well with lots of unique field names...
+        SampleImporter.cut(ret, 3, 'REDACTED')
         return ret
+
+    @staticmethod
+    def cut(dict_, maxdepth, replaced_with=None):
+        """Cuts the dictionary at the specified depth.
+
+        If maxdepth is n, then only n levels of keys are kept.
+        """
+        queue = collections.deque([(dict_, 0)])
+
+        # invariant: every entry in the queue is a dictionary
+        while queue:
+            parent, depth = queue.popleft()
+            for key, child in parent.items():
+                if isinstance(child, dict):
+                    if depth == maxdepth - 1:
+                        parent[key] = replaced_with
+                    else:
+                        queue.append((child, depth + 1))
 
     def write_sample_metadata_to_elastic(self, sample_nm, _metadata_dict):
         metadata_dict = SampleImporter.pre_process_json_for_elastic(_metadata_dict)
-
         es = get_elastic()
         es.index(index=config.REDIS_CONF_SAMPLES[0], doc_type=config.REDIS_CONF_SAMPLES[1],
                  body=json.dumps(metadata_dict), id=sample_nm)
@@ -99,9 +123,9 @@ class SampleImporter:
         print 'wrote {} -> elastic'.format(sample_nm)
 
     def sync_master_with_elastic(self):
-        files = [f for f in os.listdir(self.master_sample_dir) if re.match(r'^[A-Za-z0-9]{64}.json$', f, re.MULTILINE)]
-        print 'files: {}'.format(files)
-        print 'beep'
+        files = [f for f in os.listdir(self.master_sample_dir)
+                 if re.match(r'^[A-Za-z0-9]{64}.json$', f, re.MULTILINE)]
+
         for f in files:
             sample_md_path = os.path.join(self.master_sample_dir, f)
             with open(sample_md_path, 'r') as fd:
@@ -183,8 +207,6 @@ if __name__ == '__main__':
             input_dir = arg
         if opt in ('-e', '--existing'):
             existing_only = True
-
-    # TODO: sync option, to take all json from samples -> elastic!
 
     if existing_only:
         si = SampleImporter('', config.SAMPLES_DIR)

@@ -7,7 +7,7 @@ curl -XPUT "localhost:9200/${indexName}?pretty" -H 'Content-Type: application/js
         "index" : {
             "number_of_shards" : 3,
             "number_of_replicas" : 2,
-            "mapping.total_fields.limit": 5000
+            "mapping.total_fields.limit": 1000 
         }
     }
 }
