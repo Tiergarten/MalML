@@ -75,7 +75,8 @@ class SampleQueue:
             return None
 
         app.logger.info('to process: {}'.format(len(to_process)))
-        return '{}/agent/get_sample/{}'.format(EXT_IF, random.choice(to_process))
+        sample_to_process = DetonationSample(random.choice(to_process))
+        return '{}/agent/get_sample/{}'.format(EXT_IF, sample_to_process.sample), sample_to_process.get_arch()
 
 
 @app.before_request
@@ -97,8 +98,8 @@ def callback():
     resp['pack_url'] = EXTRACTOR_PACK_URL
     resp['extractor-pack'] = 'pack-1'
 
-    if resp['run_id'] == 0:
-        sample_to_process = SampleQueue().get_sample_to_process()
+    if resp['run_id'] == 0 or True:
+        sample_to_process, arch = SampleQueue().get_sample_to_process()
         if sample_to_process is None:
             return "OK"
 
@@ -106,19 +107,16 @@ def callback():
         VmWatchDog(node).set_processing(sample_sha, cb_uuid, 0)
 
         resp['sample_url'] = sample_to_process
-        resp['action'] = 'init'
-
-    resp['action'] = 'seek_and_destroy'
-
-    # TODO: Remove this to return to normal flow
-    resp['action'] = 'init'
+        resp['action'] = 'init{}'.format(arch)
+    else:
+        resp['action'] = 'seek_and_destroy'
 
     return json.dumps(resp)
 
 
 @app.route('/agent/extractor_pack/<pack_name>')
 def extractor_pack(pack_name):
-    return send_from_directory(EXTRACTOR_PACK_DIR, "sample_pack.zip")
+    return send_from_directory(EXTRACTOR_PACK_DIR, "sample_agg.zip")
 
 
 def get_upload_dir(*path_args):

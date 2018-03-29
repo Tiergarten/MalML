@@ -10,6 +10,24 @@ import os
 import sys
 
 
+class DetonationSample:
+    def __init__(self, sample):
+        self.sample = sample
+
+    def get_arch(self):
+        arch = self.get_metadata()['arch']
+        if 'PE32+' in arch:
+            return '64'
+        elif 'PE' in arch:
+            return '32'
+        else:
+            return None
+
+    def get_metadata(self):
+        with open(os.path.join(config.SAMPLES_DIR, '{}.json'.format(self.sample)), 'r') as fd:
+            return json.loads(fd.read())
+
+
 class DetonationUpload:
     def __init__(self, upload_dir, sample, uuid, run_ids):
         self.upload_dir = upload_dir
@@ -139,8 +157,12 @@ def setup_logging(log_fn):
 def detonation_upload_to_es(detonation_upload, run_id):
     es = get_elastic()
     _id = '{}-{}-{}'.format(detonation_upload.sample, detonation_upload.uuid, run_id)
+
+    metadata = detonation_upload.get_metadata(run_id)
+    metadata['sample'] = detonation_upload.sample
+
     es.index(index=config.REDIS_CONF_UPLOADS[0], doc_type=config.REDIS_CONF_UPLOADS[1],
-             body=json.dumps(detonation_upload.get_metadata(run_id)), id=_id)
+             body=json.dumps(metadata), id=_id)
     print 'wrote -> elastic {}'.format(_id)
 
 

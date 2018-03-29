@@ -19,13 +19,24 @@ for sample in good_res.hits:
 """
 
 if __name__ == '__main__':
-    debug_samples(UploadSearch().s().filter('range', **{'output-before-gz': {'gte': 2}}), 'GOOD')
-    debug_samples(UploadSearch().s().filter('match', status='ERR'), 'ERR')
-    debug_samples(UploadSearch().s().filter('match', status='WARN'), 'WARN')
-
     good_s = UploadSearch().s().filter('range', **{'output-before-gz': {'gte': 2}})
     good_res = good_s[0:good_s.count()].execute()
 
+    bad_s = UploadSearch().s().filter('match', status='ERR')
+    bad_res = bad_s[0:bad_s.count()].execute()
+
+    debug_samples(good_s, 'GOOD')
+    debug_samples(bad_s, 'ERR')
+    debug_samples(UploadSearch().s().filter('match', status='WARN'), 'WARN')
+
     for sample in good_res:
-        sample_sha = sample.sample_url.split('/')[-1]
-        print 'sample info:{} -> {}'.format(sample_sha,get_sample_by_id(sample_sha)['_source']['arch'])
+        sample_sha = sample.sample
+        print 'GOOD sample info:{} -> {}'.format(
+            sample_sha,get_sample_by_id(sample_sha)['_source']['arch'])
+
+    # FACK!
+    for sample in bad_res:
+        sample_sha = sample.sample
+        print 'BAD sample info:{} -> {}'.format(
+            sample_sha, get_sample_by_id(sample_sha)['_source']['arch'])
+

@@ -135,7 +135,7 @@ class ExtractorPackManager:
         return [e for e in os.listdir(self.pack_path) if e.startswith('pack') and
                 os.path.isdir(os.path.join(self.pack_path, e))]
 
-    def run_pack(self, mode='init'):
+    def run_pack(self, mode):
         extractors = self.get_extractors()
         sample = self.sample
         print 'sample: {}, extractors: {}'.format(sample, extractors)
