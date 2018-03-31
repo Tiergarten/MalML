@@ -25,3 +25,6 @@ REDIS_CONF_SAMPLES = ('malml-sample', 'metadata')
 REDIS_CONF_UPLOADS = ('malml-upload', 'metadata')
 
 VM_HEARTBEAT_TIMEOUT_MINS = 8
+
+UPLOAD_RQUEUE_NAME = 'detonator-uploads'
+REDIS_FEATURE_WORKER_PREFIX = 'du-worker'

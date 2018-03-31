@@ -42,7 +42,7 @@ def update_callback_details(cb_uuid):
     elif cb_uuid in uuid_run_map:
         uuid_run_map[cb_uuid] += 1
     else:
-        print 'WARN: received uuid we dont know about...'
+        app.logger.warn('received uuid we dont know about...')
         uuid_run_map[cb_uuid] = 0
 
     resp['run_id'] = uuid_run_map[cb_uuid]
@@ -77,6 +77,17 @@ class SampleQueue:
         app.logger.info('to process: {}'.format(len(to_process)))
         sample_to_process = DetonationSample(random.choice(to_process))
         return '{}/agent/get_sample/{}'.format(EXT_IF, sample_to_process.sample), sample_to_process.get_arch()
+
+
+class UploadPublisher:
+    @staticmethod
+    def publish(detonation_upload, run_id):
+        detonation_upload_to_es(detonation_upload, run_id)
+        UploadPublisher.publish_to_redis(detonation_upload, run_id)
+
+    @staticmethod
+    def publish_to_redis(du, run_id):
+        upload_queue = ReliableQueue(config.UPLOAD_RQUEUE_NAME).enqueue(du.to_json(run_id))
 
 
 @app.before_request
@@ -154,7 +165,7 @@ def upload_results(sample, uuid, run_id, force_one_run=True):
     du.write_metadata(json.dumps(request.form, indent=4, sort_keys=True))
     app.logger.info('wrote {}'.format(du.get_metadata_path(run_id)))
 
-    detonation_upload_to_es(du, run_id)
+    UploadPublisher.publish(du, run_id)
 
     vm_name = get_form_param('node')
     if vm_name is None:
@@ -164,13 +175,13 @@ def upload_results(sample, uuid, run_id, force_one_run=True):
     VmWatchDog(vm_name).clear_processing()
 
     if not get_form_param('status') in ['OK', 'WARN']:
-        app.logger.info('error in run: {}:{}'.format(request.form['status'], request.form['status_msg']))
+        app.logger.error('error in run: {}:{}'.format(request.form['status'], request.form['status_msg']))
         vm_action(vm_name, 'restore')
-        return "OK"
 
-    if int(request.form['runs-left']) <= 0 or force_one_run:
+    elif int(request.form['runs-left']) <= 0 or force_one_run:
         app.logger.info('no runs left, restoring vm to snapshot')
         vm_action(vm_name, 'restore')
+
     else:
         app.logger.info('bouncing vm')
         vm_action(vm_name, 'reset')

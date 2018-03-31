@@ -18,6 +18,8 @@ import shutil
 from common import *
 import collections
 
+__version__ = '0.0.1'
+
 http_headers = {
         "Accept-Encoding": "gzip, deflate",
         "User-Agent": "gzip,  My Python requests library example client or username"
@@ -46,25 +48,33 @@ class SampleImporter:
         ps = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         return ps.communicate()[0].split(':')[1].rstrip()
 
-    def write_sample_metadata(self, sample_nm, source, label, elastic):
-        sample_md_path = self.get_tgt_sample_metadata_file(sample_nm)
-
-        if not os.path.exists(sample_md_path):
-            metadata = {
+    def get_json_metadata(self, sample_nm, source, label):
+        return {
+                'malml-sample-mgr': __version__,
                 'vti': self.get_vti_sample_metadata(sample_nm),
                 'source': source,
                 'label': label,
                 'arch': self.get_arch(os.path.join(self.input_sample_dir, sample_nm))
             }
 
-            with open(sample_md_path, 'w') as fd:
-                fd.write(json.dumps(metadata, indent=4, sort_keys=True))
+    def write_sample_metadata(self, sample_nm, source, label, elastic):
+        sample_md_path = self.get_tgt_sample_metadata_file(sample_nm)
+        gen_metadata = self.get_json_metadata(sample_nm, source, label)
 
+        if not os.path.exists(sample_md_path):
+            with open(sample_md_path, 'w') as fd:
+                fd.write(json.dumps(gen_metadata, indent=4, sort_keys=True))
             print 'wrote {}'.format(sample_md_path)
         else:
-            print '{} already exists'.format(sample_md_path)
+            print '{} already exists, checking if ours'.format(sample_md_path)
             with open(sample_md_path, 'r') as fd:
                 metadata = json.loads(fd.read())
+
+            if 'malml-sample-mgr' not in metadata:
+                print 'not ours, overwriting...'
+                gen_metadata['metadata'] = metadata
+                with open(sample_md_path, 'r') as fd:
+                    fd.write(json.dumps(metadata, indent=4, sort_keys=True))
 
         if elastic:
             try :
@@ -187,18 +197,15 @@ class SampleEnqueuer(threading.Thread):
 
 if __name__ == '__main__':
 
-    do_import = False
     source = ''
     label = ''
     input_dir = ''
     existing_only = False
 
-    opts, remaining = getopt.getopt(sys.argv[1:], 'mqs:l:i:e',
-                                    ['metadata, queue-samples', 'source', 'label', 'input-dir', 'existing'])
+    opts, remaining = getopt.getopt(sys.argv[1:], 'qs:l:i:e',
+                                    ['queue-samples', 'source', 'label', 'input-dir', 'existing'])
 
     for opt, arg in opts:
-        if opt in ('-m', '--metadata'):
-            do_import = True
         if opt in ('-s', '--source'):
             source = arg
         if opt in ('-l', '--label'):
@@ -211,7 +218,7 @@ if __name__ == '__main__':
     if existing_only:
         si = SampleImporter('', config.SAMPLES_DIR)
         si.sync_master_with_elastic()
-    elif do_import:
+    else:
         assert len(source) > 1 and len(input_dir) > 1 and len(label) > 1
 
         print 'importing samples {} -> {}'.format(input_dir, config.SAMPLES_DIR)
