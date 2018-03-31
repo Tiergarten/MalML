@@ -21,7 +21,7 @@ function stopVm() {
 	local vmName=$1
 
     info "Sending stop signal to vm ${vmName}"
-	manage controlvm ${vmName} acpipowerbutton
+	manage controlvm ${vmName} poweroff
 
     counter=0
 	while [[ $(isRunning ${vmName}) == "1" ]]; do
@@ -33,7 +33,7 @@ function stopVm() {
 
 	    if [[ "${counter}" -ne 0 && $((${counter} % 5)) == 0 ]];then
 	        info "Re-sending stop signal to vm ${vmName} after ${counter} sleeps..."
-	        manage controlvm ${vmName} acpipowerbutton
+	        manage controlvm ${vmName} poweroff
         fi
 
 		info "Polling for shutdown of ${vmName}..."

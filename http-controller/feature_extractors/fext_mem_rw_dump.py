@@ -100,6 +100,8 @@ class FextMemRwDump:
     def get_chunk_mem_deltas(df, chunk_sz_instr=10000, mode=MemOffsetMode.DEFAULT):
         ret = []
         for c in FextMemRwDump.get_chunks(df, chunk_sz_instr):
+            # TODO: do we want to divide these results by chunk sz??
+            # TODO: what about the size of the binary also
             ret.append(FextMemRwDump.calc_mem_access_delta(c, mode))
 
         return ret
@@ -148,7 +150,7 @@ class FextMemRwDump:
         for access_type in ['R', 'W', 'RW']:
             df = FextMemRwDump.get_df_from_file(get_pintool_output(fn), access_type)
 
-            for instr_chunk_sz in [1000, 5000, 10000, 25000]:
+            for instr_chunk_sz in [1000, 2000, 5000]:
                 for mode in FextMemRwDump.MemOffsetMode:
 
                     if mode == FextMemRwDump.MemOffsetMode.DEFAULT:
