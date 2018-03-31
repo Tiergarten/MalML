@@ -1,8 +1,10 @@
 import importlib
-
+import sys
 import time
 from common import *
 import config
+import traceback
+import logging
 
 from feature_extractors import fext_common
 
@@ -23,11 +25,14 @@ def extract_features(du, run_id):
     for (module, clazz) in get_fexts_for_pack(metadata.get_extractor()):
         feature_ext_class = get_feature_extractor_for_pack(module, clazz)
 
-        feature_writer = fext_common.FeatureSetsWriter(config.FEATURES_DIR, upload.sample, run,
+        feature_writer = fext_common.FeatureSetsWriter(config.FEATURES_DIR, du.sample, run_id,
                                                        feature_ext_class.extractor_name,
-                                                       feature_ext_class.extractor_ver)
+                                                       feature_ext_class.__version__)
 
-        feature_ext_class(feature_writer).run(du.get_output(run))
+        if feature_writer.already_exists():
+            logging.info('feature extract for {} already exists, skipping...'.format(du.sample))
+
+        feature_ext_class(feature_writer).run(du.get_output(run_id))
 
 
 class FeatureExtractorWorker(threading.Thread):
@@ -39,15 +44,27 @@ class FeatureExtractorWorker(threading.Thread):
         self.running = True
 
     def _run(self):
+        if self.queue.processing_depth() > 0:
+            logging.info('recovery mode')
+            while self.queue.processing_depth > 0:
+                msg = self.queue.dequeue_recovery()
+                if msg is None:
+                    break
+                self.process(msg)
+
         while self.running:
-            self.logger.info('polling {} ...'.format(self.queue.get_processing_list()))
+            self.logger.info('polling {}, queue depth: {}, processing depth: {}'.format(self.queue.get_processing_list(),
+                                                                                        self.queue.queue_depth(),
+                                                                                        self.queue.processing_depth()))
             msg = self.queue.dequeue()
             if msg is None:
                 continue
+            self.process(msg)
 
-            du = DetonationUpload.from_json(msg)
-            extract_features(du, msg['run_id'])
-            self.queue.commit(msg)
+    def process(self, msg):
+        du = DetonationUpload.from_json(msg)
+        extract_features(du, int(json.loads(msg)['run_id']))
+        self.queue.commit(msg)
 
     def run(self):
         while self.running:
@@ -55,13 +72,14 @@ class FeatureExtractorWorker(threading.Thread):
                 self._run()
             except Exception as e:
                 self.logger.error(e)
+                self.logger.error(traceback.format_exc())
 
 
 if __name__ == '__main__':
 
     setup_logging('feature_extractor')
-
-    workers = [FeatureExtractorWorker(config.UPLOAD_RQUEUE_NAME, w) for w in range(0, 4)]
+    instance_name = sys.argv[1] if len(sys.argv) > 1 else 'default'
+    workers = [FeatureExtractorWorker(config.UPLOAD_RQUEUE_NAME, '{}-{}'.format(instance_name, w)) for w in range(0, 3)]
 
     for w in workers:
         w.start()

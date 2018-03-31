@@ -26,7 +26,10 @@ class DetonationSample:
 
     def get_metadata(self):
         with open(os.path.join(config.SAMPLES_DIR, '{}.json'.format(self.sample)), 'r') as fd:
-            return json.loads(fd.read())
+            return json.load(fd)
+
+    def get_source(self):
+        return self.get_metadata()['source']
 
 
 # TODO: This should only contain one run_id, its crap having to store (du, run_id)
@@ -73,7 +76,7 @@ class DetonationUpload:
     @staticmethod
     def from_json(json_body):
         j = json.loads(json_body)
-        return DetonationUpload(None, j['sample'], j['uuid'], [j['run_id']])
+        return DetonationUpload(config.UPLOADS_DIR, j['sample'], j['uuid'], [j['run_id']])
 
 
 class DetonationMetadata:
@@ -101,6 +104,12 @@ def get_detonator_uploads(upload_dir):
 
     return ret
 
+def enqueue_existing_uploads_for_feature_ext():
+    q = ReliableQueue(config.UPLOAD_RQUEUE_NAME)
+    for upload in get_detonator_uploads(config.UPLOADS_DIR):
+        if upload.isSuccess():
+            print 'sending {}'.format(upload.to_json())
+            q.enqueue(upload.to_json())
 
 def get_samples(samples_dir):
     return [f for f in os.listdir(samples_dir) if is_sha256_fn(f)]
@@ -205,8 +214,24 @@ class ReliableQueue:
     def dequeue(self):
         return self.r.brpoplpush(self.producer_queue, self.get_processing_list(), self.blocking_timeout)
 
+    def dequeue_recovery(self):
+        return self.r.blpop(self.get_processing_list(), self.blocking_timeout)
+
     def commit(self, msg):
         return self.r.lrem(self.producer_queue, msg)
+
+    def queue_depth(self):
+        return self.r.llen(self.producer_queue)
+
+    def processing_depth(self):
+        return self.r.llen(self.get_processing_list())
+
+    def clear_queue(self):
+        self.r.delete(self.producer_queue)
+
+    def clear_processing_queues(self):
+        for k in self.r.keys('{}:*'.format(self.consumer_queue_prefix)):
+            self.r.delete(k)
 
 
 if __name__ == '__main__':

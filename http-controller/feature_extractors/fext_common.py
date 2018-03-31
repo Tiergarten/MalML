@@ -39,7 +39,7 @@ class FeatureSetsWriter:
 
         self.output_dir = output_dir
         self.body['sample_id'] = sample_id
-        self.body['run_id'] = run_id
+        self.body['run_id'] = str(run_id)
         self.body['feature_set_name'] = feature_set_name
         self.body['feature_set_ver'] = feature_set_ver
 
@@ -47,6 +47,9 @@ class FeatureSetsWriter:
     def get_filename(self):
         fn = '{}-{}.json'.format(self.body['feature_set_name'], self.body['feature_set_ver'])
         return os.path.join(self.output_dir, self.body['sample_id'], self.body['run_id'], fn)
+
+    def already_exists(self):
+        return os.path.exists(self.get_filename())
 
     def init_feature_sets(self, feature_name):
         if feature_name not in self.feature_sets:

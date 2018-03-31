@@ -18,7 +18,7 @@ SAMPLES_DIR = 'samples'
 AGENT_DIR = '../guest-agent/'
 UPLOADS_DIR = 'uploads'
 EXTRACTOR_PACK_DIR = 'extractor-packs'
-FEATURES_DIR = 'features/'
+FEATURES_DIR = 'features'
 
 
 REDIS_CONF_SAMPLES = ('malml-sample', 'metadata')
