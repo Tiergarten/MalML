@@ -72,7 +72,7 @@ class SampleImporter:
 
             if 'malml-sample-mgr' not in metadata:
                 print 'not ours, overwriting...'
-                gen_metadata['metadata'] = metadata
+                gen_metadata['existing_metadata'] = metadata
                 with open(sample_md_path, 'r') as fd:
                     fd.write(json.dumps(metadata, indent=4, sort_keys=True))
 
