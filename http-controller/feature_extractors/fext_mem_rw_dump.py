@@ -6,14 +6,18 @@ from fext_common import *
 from enum import Enum
 import pdb
 import sys
+import logging
 
 
 class FextMemRwDump:
     extractor_name = 'ext-mem-rw-dump'
-    extractor_ver = '0.0.1'
+    __version__ = '0.0.1'
 
     def __init__(self, feature_set_writer):
         self.feature_set_writer = feature_set_writer
+        self.logger = logging.getLogger('{}-{}'.format(self.__class__.__name__,
+                                                       feature_set_writer.body['sample_id'][0:7]))
+
 
     @staticmethod
     def parse_line(str, type):
@@ -157,11 +161,11 @@ class FextMemRwDump:
                         continue
 
                     if len(df) < instr_chunk_sz:
-                        print 'not enough instructions to fill a chunk, skipping...'
+                        self.logger.warn('not enough instructions to fill a chunk, skipping...')
                         continue
 
                     feature_name = "%s-%s-%s" % (access_type, mode, instr_chunk_sz)
-                    print 'extracting feature: {}'.format(feature_name)
+                    self.logger.info('extracting feature: {}'.format(feature_name))
                     sys.stdout.flush()
 
                     # Split mem access into chunks, and calculate the mem access delta (from first in chunk)
@@ -170,10 +174,11 @@ class FextMemRwDump:
 
                     # Produce histogram
                     if len(chunk_tgt_deltas) < 3:
-                        print 'not enough chunks for histogram, skipping {}'.format(feature_name)
+                        self.logger.warn('not enough chunks for histogram, skipping {}'.format(feature_name))
                         continue
 
-                    divisions, counts = FextMemRwDump.get_histogram(chunk_tgt_deltas, feature_name, self.feature_set_writer)
+                    divisions, counts = FextMemRwDump.get_histogram(chunk_tgt_deltas, feature_name,
+                                                                    self.feature_set_writer)
                     # TODO: We don't want to write scientific notation
                     self.feature_set_writer.write_feature_set(feature_name, counts.tolist())
 

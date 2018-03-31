@@ -8,7 +8,8 @@ import logging
 from logging.handlers import TimedRotatingFileHandler
 import os
 import sys
-
+import redis
+import threading
 
 class DetonationSample:
     def __init__(self, sample):
@@ -28,6 +29,7 @@ class DetonationSample:
             return json.loads(fd.read())
 
 
+# TODO: This should only contain one run_id, its crap having to store (du, run_id)
 class DetonationUpload:
     def __init__(self, upload_dir, sample, uuid, run_ids):
         self.upload_dir = upload_dir
@@ -61,8 +63,17 @@ class DetonationUpload:
         with open(self.get_metadata_path(run_id), 'w') as md:
             md.write(md_body)
 
-    def write_upload(self, upload_body):
-        pass
+    def to_json(self, run_id=0):
+        return json.dumps({
+            'uuid': self.uuid,
+            'sample': self.sample,
+            'run_id': run_id
+        })
+
+    @staticmethod
+    def from_json(json_body):
+        j = json.loads(json_body)
+        return DetonationUpload(None, j['sample'], j['uuid'], [j['run_id']])
 
 
 class DetonationMetadata:
@@ -171,6 +182,31 @@ def push_upload_stats_elastic(json_dir=config.UPLOADS_DIR):
     for u in uploads:
         for r in u.run_ids:
             detonation_upload_to_es(u, r)
+
+
+def get_redis():
+    return redis.Redis(host=config.REDIS_HOST, port=config.REDIS_PORT)
+
+
+class ReliableQueue:
+    def __init__(self, producer_queue, consumer_queue_prefix=None, consumer_id=None):
+        self.producer_queue = producer_queue
+        self.consumer_queue_prefix = consumer_queue_prefix
+        self.consumer_id = consumer_id
+        self.r = get_redis()
+        self.blocking_timeout = 15
+
+    def get_processing_list(self):
+        return '{}:{}'.format(self.consumer_queue_prefix, self.consumer_id)
+
+    def enqueue(self, msg):
+        self.r.lpush(self.producer_queue, msg)
+
+    def dequeue(self):
+        return self.r.brpoplpush(self.producer_queue, self.get_processing_list(), self.blocking_timeout)
+
+    def commit(self, msg):
+        return self.r.lrem(self.producer_queue, msg)
 
 
 if __name__ == '__main__':
