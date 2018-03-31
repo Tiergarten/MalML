@@ -72,7 +72,7 @@ class SampleQueue:
 
         if len(to_process) == 0:
             app.logger.warn('No samples left to process...')
-            return None
+            return None, None
 
         app.logger.info('to process: {}'.format(len(to_process)))
         sample_to_process = DetonationSample(random.choice(to_process))
