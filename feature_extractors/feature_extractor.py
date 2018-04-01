@@ -5,6 +5,7 @@ from common import *
 import config
 import traceback
 import logging
+import objgraph
 
 from feature_extractors import fext_common
 
@@ -34,6 +35,9 @@ def extract_features(du, run_id):
 
         feature_ext_class(feature_writer).run(du.get_output(run_id))
 
+        # Doesn't seem to be garbage collected due to the dynamic way it's instantiated
+        del feature_ext_class
+
 
 class FeatureExtractorWorker(threading.Thread):
     def __init__(self, producer_queue_nm, worker_nm):
@@ -50,12 +54,15 @@ class FeatureExtractorWorker(threading.Thread):
                 msg = self.queue.dequeue_recovery()
                 if msg is None:
                     break
-                self.process(msg)
+
+                self.process(msg[1])
 
         while self.running:
             self.logger.info('polling {}, queue depth: {}, processing depth: {}'.format(self.queue.get_processing_list(),
                                                                                         self.queue.queue_depth(),
                                                                                         self.queue.processing_depth()))
+            self.logger.info('mem growth: {}'.format(str(objgraph.growth(limit=10))))
+
             msg = self.queue.dequeue()
             if msg is None:
                 continue
@@ -63,7 +70,10 @@ class FeatureExtractorWorker(threading.Thread):
 
     def process(self, msg):
         du = DetonationUpload.from_json(msg)
-        extract_features(du, int(json.loads(msg)['run_id']))
+        if du.isSuccess():
+            extract_features(du, int(json.loads(msg)['run_id']))
+        else:
+            self.logger.info('skipping {}, not successful'.format(du.sample))
         self.queue.commit(msg)
 
     def run(self):
@@ -77,9 +87,14 @@ class FeatureExtractorWorker(threading.Thread):
 
 if __name__ == '__main__':
 
-    setup_logging('feature_extractor')
+    if len(sys.argv) > 2 and sys.argv[2] == 'clean':
+        ReliableQueue(config.REDIS_UPLOAD_QUEUE_NAME).clear_processing_queues()
+        ReliableQueue(config.REDIS_UPLOAD_QUEUE_NAME).clear_queue()
+
+    setup_logging('feature_extractor.log')
     instance_name = sys.argv[1] if len(sys.argv) > 1 else 'default'
-    workers = [FeatureExtractorWorker(config.UPLOAD_RQUEUE_NAME, '{}-{}'.format(instance_name, w)) for w in range(0, 3)]
+    workers = [FeatureExtractorWorker(config.REDIS_UPLOAD_QUEUE_NAME,
+                                      '{}-{}'.format(instance_name, w)) for w in range(0, 3)]
 
     for w in workers:
         w.start()

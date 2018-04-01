@@ -87,7 +87,7 @@ class UploadPublisher:
 
     @staticmethod
     def publish_to_redis(du, run_id):
-        upload_queue = ReliableQueue(config.UPLOAD_RQUEUE_NAME).enqueue(du.to_json(run_id))
+        upload_queue = ReliableQueue(config.REDIS_UPLOAD_QUEUE_NAME).enqueue(du.to_json(run_id))
 
 
 @app.before_request

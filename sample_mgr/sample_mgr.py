@@ -127,7 +127,7 @@ class SampleImporter:
     def write_sample_metadata_to_elastic(self, sample_nm, _metadata_dict):
         metadata_dict = SampleImporter.pre_process_json_for_elastic(_metadata_dict)
         es = get_elastic()
-        es.index(index=config.REDIS_CONF_SAMPLES[0], doc_type=config.REDIS_CONF_SAMPLES[1],
+        es.index(index=config.ES_CONF_SAMPLES[0], doc_type=config.ES_CONF_SAMPLES[1],
                  body=json.dumps(metadata_dict), id=sample_nm)
 
         print 'wrote {} -> elastic'.format(sample_nm)

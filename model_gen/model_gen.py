@@ -16,7 +16,7 @@ class UploadSearch:
 
     @staticmethod
     def s():
-        return Search(using=get_elastic(), index=config.REDIS_CONF_UPLOADS[0], doc_type=config.REDIS_CONF_UPLOADS[1])
+        return Search(using=get_elastic(), index=config.ES_CONF_UPLOADS[0], doc_type=config.ES_CONF_UPLOADS[1])
 
     def search(self):
         ret = UploadSearch.s()
@@ -39,7 +39,7 @@ class SampleSearch:
 
     @staticmethod
     def s():
-        return Search(using=get_elastic(), index=config.REDIS_CONF_SAMPLES[0], doc_type=config.REDIS_CONF_SAMPLES[1])
+        return Search(using=get_elastic(), index=config.ES_CONF_SAMPLES[0], doc_type=config.ES_CONF_SAMPLES[1])
 
     def search(self):
         ret = SampleSearch.s()
@@ -70,8 +70,8 @@ def get_labelled_sample_set(_feature_fam, _label, count, exclude=[]):
 
 
 def get_features():
-    return [os.path.join(config.FEATURES_DIR, f, '0', 'ext-mem-rw-dump-0.0.1.json') for f in os.listdir(config.FEATURES_DIR)
-            if not f.startswith('.')]
+    return [os.path.join(config.FEATURES_DIR, f, '0', 'ext-mem-rw-dump-0.0.1.json')
+            for f in os.listdir(config.FEATURES_DIR) if not f.startswith('.')]
 
 class ModelInputBuilder:
     @staticmethod
@@ -179,6 +179,8 @@ def get_features_from_disk():
     for f in total_features:
         with open(f, 'r') as fd:
             md = json.load(fd)
+
+        # TODO: Skip no data...
 
         ds = DetonationSample(md['sample_id'])
         label = SampleLabelPredictor(ds, vti_only=True).get_label()

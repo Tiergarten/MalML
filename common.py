@@ -10,6 +10,7 @@ import os
 import sys
 import redis
 import threading
+from config import LOGS_DIR
 
 class DetonationSample:
     def __init__(self, sample):
@@ -53,6 +54,9 @@ class DetonationUpload:
             return json.loads(fd.read())
 
     def isSuccess(self, run_id=0):
+        if not os.path.exists(self.get_metadata_path(run_id)):
+            return False
+        
         md = self.get_metadata(run_id)
         return 'status' in md.keys() and md['status'] != "ERR"
 
@@ -105,7 +109,7 @@ def get_detonator_uploads(upload_dir):
     return ret
 
 def enqueue_existing_uploads_for_feature_ext():
-    q = ReliableQueue(config.UPLOAD_RQUEUE_NAME)
+    q = ReliableQueue(config.REDIS_UPLOAD_QUEUE_NAME)
     for upload in get_detonator_uploads(config.UPLOADS_DIR):
         if upload.isSuccess():
             print 'sending {}'.format(upload.to_json())
@@ -156,8 +160,10 @@ def set_run_status(json, status, msg):
     json['status_msg'] = msg
 
 
-def setup_logging(log_fn):
+def setup_logging(_log_fn):
     formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+
+    log_fn = os.path.join(LOGS_DIR, _log_fn)
 
     file_log_handler = TimedRotatingFileHandler(log_fn, when='D')
     file_log_handler.setLevel(logging.INFO)
@@ -181,7 +187,7 @@ def detonation_upload_to_es(detonation_upload, run_id):
     metadata = detonation_upload.get_metadata(run_id)
     metadata['sample'] = detonation_upload.sample
 
-    es.index(index=config.REDIS_CONF_UPLOADS[0], doc_type=config.REDIS_CONF_UPLOADS[1],
+    es.index(index=config.ES_CONF_UPLOADS[0], doc_type=config.ES_CONF_UPLOADS[1],
              body=json.dumps(metadata), id=_id)
     print 'wrote -> elastic {}'.format(_id)
 

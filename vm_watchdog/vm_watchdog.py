@@ -95,7 +95,7 @@ class VboxManager(threading.Thread):
     def __init__(self, vm_name, queue):
         threading.Thread.__init__(self)
         self.vm_name = vm_name
-        self.script_path = 'bash ../vbox-controller/vbox-ctrl.sh'
+        self.script_path = 'bash {}'.format(os.path.join(config.DETONATOR_DIR, 'vbox-controller', 'vbox-ctrl.sh'))
         self.queue = queue
         self.blocking = True
         self.logger = logging.getLogger('{}_{}'.format(self.__class__.__name__, self.vm_name))
