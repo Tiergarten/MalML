@@ -12,7 +12,7 @@ from config import *
 import logging
 import sys
 from common import *
-from vm_watchdog import VmWatchDog
+from vm_watchdog.vm_watchdog import VmWatchDog
 
 app = Flask(__name__)
 

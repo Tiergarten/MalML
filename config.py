@@ -1,10 +1,11 @@
-AGENT_INSTALL_PATH = '../guest-agent/agent.py'
+import os
+
+DETONATOR_DIR = os.path.dirname(os.path.realpath(__file__))
 
 EXT_IF = 'http://192.168.1.145:5000'
 EXTRACTOR_PACK_URL = '{}/agent/extractor_pack/default'.format(EXT_IF)
 
 _ACTIVE_VMS = [('win7_sp1_ent-dec_2011', 'autorun v0.3', 4)] # TODO: map this to below
-
 ACTIVE_VMS = []
 for suite in _ACTIVE_VMS:
     for i in range(1, suite[2]+1):
@@ -14,11 +15,14 @@ REDIS_HOST = 'localhost'
 REDIS_PORT = 6379
 REDIS_QUEUE = 'sample_queue'
 
-SAMPLES_DIR = 'samples'
-AGENT_DIR = '../guest-agent/'
-UPLOADS_DIR = 'uploads'
-EXTRACTOR_PACK_DIR = 'extractor-packs'
-FEATURES_DIR = 'features'
+AGENT_DIR = os.path.join(DETONATOR_DIR, 'guest-agent')
+EXTRACTOR_PACK_DIR = os.path.join(DETONATOR_DIR, 'extractor-packs')
+
+DATA_DIR = os.path.join(DETONATOR_DIR, 'data')
+
+SAMPLES_DIR = os.path.join(DATA_DIR, 'samples')
+UPLOADS_DIR = os.path.join(DATA_DIR, 'uploads')
+FEATURES_DIR = os.path.join(DATA_DIR, 'features')
 
 
 REDIS_CONF_SAMPLES = ('malml-sample', 'metadata')

@@ -1,9 +1,9 @@
 from common import *
 import random
-from model_gen.mg_common import *
+from mg_common import *
 import config
 from pyspark.mllib.regression import LabeledPoint
-
+import json
 
 FEATURE_FAM = 'ext-mem-rw-dump'
 
@@ -206,4 +206,5 @@ if __name__ == '__main__':
 
     feature_sets = [x[0] for x in [f for f in blps[blps.keys()[0]]]]
     for i in feature_sets:
+        pass
         # TODO: train model
