@@ -177,10 +177,10 @@ class FextMemRwDump:
                         self.logger.warn('not enough chunks for histogram, skipping {}'.format(feature_name))
                         continue
 
-                    divisions, counts = FextMemRwDump.get_histogram(chunk_tgt_deltas, feature_name,
+                    hist, bin_edges = FextMemRwDump.get_histogram(chunk_tgt_deltas, feature_name,
                                                                     self.feature_set_writer)
                     # TODO: We don't want to write scientific notation
-                    self.feature_set_writer.write_feature_set(feature_name, counts.tolist())
+                    self.feature_set_writer.write_feature_set(feature_name, hist.tolist())
 
                     #print "a: %s" % (type(counts.tolist()[0]))
                     #print 'histogram buckets: %s' % divisions
