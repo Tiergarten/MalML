@@ -56,7 +56,7 @@ class DetonationUpload:
     def isSuccess(self, run_id=0):
         if not os.path.exists(self.get_metadata_path(run_id)):
             return False
-        
+
         md = self.get_metadata(run_id)
         return 'status' in md.keys() and md['status'] != "ERR"
 

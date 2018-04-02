@@ -62,7 +62,7 @@ class VmWatchdogService(threading.Thread):
         threading.Thread.__init__(self)
         self.logger = logging.getLogger(self.__class__.__name__)
         self.instance_name = 'win7workstation'
-        self.queue_name = 'vmwatchdog:{}'.format(self.instance_name)
+        self.queue_name = 'vm_watchdog:{}'.format(self.instance_name)
 
         self.threads = {}
         self.queues = {}
@@ -105,25 +105,24 @@ class VboxManager(threading.Thread):
     def __init__(self, vm_name, queue):
         threading.Thread.__init__(self)
         self.vm_name = vm_name
-        self.script_path = 'bash {}'.format(os.path.join(config.DETONATOR_DIR, 'vbox-controller', 'vbox-ctrl.sh'))
+        self.script_path = 'bash ../vbox-controller/vbox-ctrl.sh'
         self.queue = queue
         self.blocking = True
         self.logger = logging.getLogger('{}_{}'.format(self.__class__.__name__, self.vm_name))
 
-        def kill_long_running_process(self, pid):
-            print 'timeout_mins breached, killing process'
-            parent = psutil.Process(pid)
-            for child in parent.children(recursive=True):
-                try:
-                    child.kill()
-                except:
-                    pass
+    def kill_long_running_process(self, pid):
+        print 'timeout_mins breached, killing process'
+        parent = psutil.Process(pid)
+        for child in parent.children(recursive=True):
             try:
-                parent.kill()
+                child.kill()
             except:
                 pass
-            self.set_run_status(self.meta_data, 'WARN', 'breached agent timeout ({}m)'.format(EXEC_TIMEOUT_MINS))
-
+        try:
+            parent.kill()
+        except:
+            pass
+        self.logger.warn('killed long running script: {}'.format(pid))
 
     def call_ctrl_script(self, action):
         cmdline = "{} -v '{}' -s '{}' -a '{}'".format(self.script_path, self.vm_name,
@@ -131,7 +130,8 @@ class VboxManager(threading.Thread):
 
         self.logger.info('calling {}'.format(cmdline))
 
-        p = subprocess.Popen(cmdline)
+        #p = subprocess.Popen(['bash'] + cmdline.split(' '))
+        p = subprocess.Popen(cmdline, shell=True)
         psid = psutil.Process(p.pid)
         try:
             psid.wait(timeout=1 * 60)

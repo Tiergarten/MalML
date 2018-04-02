@@ -7,7 +7,7 @@ DETONATOR_DIR = os.path.dirname(os.path.realpath(__file__))
 EXT_IF = 'http://192.168.1.145:5000'
 EXTRACTOR_PACK_URL = '{}/agent/extractor_pack/default'.format(EXT_IF)
 
-_ACTIVE_VMS = [('win7_sp1_ent-dec_2011', 'autorun v0.3', 8)] # TODO: map this to below
+_ACTIVE_VMS = [('win7_sp1_ent-dec_2011', 'autorun v0.3', 7)] # TODO: map this to below
 ACTIVE_VMS = []
 for suite in _ACTIVE_VMS:
     for i in range(1, suite[2]+1):
