@@ -9,8 +9,9 @@ import os
 import redis
 import common
 import requests
-from Queue import Queue
+from Queue import Queue, Empty
 import psutil
+from common import TimeoutExec
 
 r = redis.Redis(host=config.REDIS_HOST, port=config.REDIS_PORT)
 
@@ -72,17 +73,21 @@ class VmWatchdogService(threading.Thread):
 
         r.delete(self.queue_name)
 
-    def run(self):
+    def run(self, threading=False):
         try:
-            self._run()
+            self._run(threading)
         except Exception as e:
             self.logger.error(e)
 
-    def _run(self):
+    def init_worker_threads(self):
         for vm, snapshot in config.ACTIVE_VMS:
             self.logger.info('Starting vm mgr for {}'.format(vm))
             self.threads[vm] = VboxManager(vm, self.queues[vm])
             self.threads[vm].start()
+
+    def _run(self, threading):
+        if threading:
+            self.init_worker_threads()
 
         self.logger.info('Entering polling loop...')
         while True:
@@ -98,7 +103,11 @@ class VmWatchdogService(threading.Thread):
 
             vm_name = jmsg['vm_name']
             VmWatchDog(vm_name).clear_processing()
-            self.queues[vm_name].put('restore')
+
+            if threading:
+                self.queues[vm_name].put('restore')
+            else:
+                VboxManager(vm_name, None).restore_snapshot()
 
 
 class VboxManager(threading.Thread):
@@ -110,33 +119,12 @@ class VboxManager(threading.Thread):
         self.blocking = True
         self.logger = logging.getLogger('{}_{}'.format(self.__class__.__name__, self.vm_name))
 
-    def kill_long_running_process(self, pid):
-        print 'timeout_mins breached, killing process'
-        parent = psutil.Process(pid)
-        for child in parent.children(recursive=True):
-            try:
-                child.kill()
-            except:
-                pass
-        try:
-            parent.kill()
-        except:
-            pass
-        self.logger.warn('killed long running script: {}'.format(pid))
-
     def call_ctrl_script(self, action):
         cmdline = "{} -v '{}' -s '{}' -a '{}'".format(self.script_path, self.vm_name,
                                                       self.get_active_snapshot(), action)
 
-        self.logger.info('calling {}'.format(cmdline))
-
-        #p = subprocess.Popen(['bash'] + cmdline.split(' '))
-        p = subprocess.Popen(cmdline, shell=True)
-        psid = psutil.Process(p.pid)
-        try:
-            psid.wait(timeout=1 * 60)
-        except psutil.TimeoutExpired:
-            self.kill_long_running_process(p.pid)
+        te = TimeoutExec(cmdline, 1)
+        te.do_exec()
 
     def restart(self):
         return self.call_ctrl_script('restart')
@@ -150,16 +138,20 @@ class VboxManager(threading.Thread):
                 return vm_s[1]
 
     def run(self):
-        try:
-            self._run()
-        except Exception as e:
-            self.logger.error(e)
+        while True:
+            try:
+                self._run()
+            except Exception as e:
+                self.logger.error(e)
 
     def _run(self):
         while True:
             self.logger.info('polling... ({})'.format(self.queue.qsize()))
-            msg = self.queue.get()
-            self.restore_snapshot()
+            try:
+                msg = self.queue.get(timeout=15)
+                self.restore_snapshot()
+            except Empty as e:
+                continue
 
 
 class VmHeartbeat(threading.Thread):
@@ -190,7 +182,7 @@ class VmHeartbeat(threading.Thread):
         return idle_secs > self.timeout_secs_limit
 
     def create_bad_sample_metadata_json(self, sample, uuid, run_id):
-        uri = 'http://{}/agent/error/{}/{}/{}'.format(config.EXT_IF, sample, uuid, run_id)
+        uri = '{}/agent/error/{}/{}/{}'.format(config.EXT_IF, sample, uuid, run_id)
         self.logger.info('calling {}'.format(uri))
         r = requests.post(uri, {'status':'ERR', 'status_msg':'vm watchdog timeout'})
         self.logger.info(r.text)
@@ -201,7 +193,7 @@ class VmHeartbeat(threading.Thread):
             self.heartbeat(vm)
             self.logger.info('reset vm heartbeat and processing {}'.format(vm))
 
-    def run(self):
+    def _run(self):
         while True:
             for vm, snapshot in config.ACTIVE_VMS:
                 if self.is_timeout_expired(vm):
@@ -215,12 +207,20 @@ class VmHeartbeat(threading.Thread):
 
             time.sleep(self.poll_tm_secs)
 
+    def run(self):
+        while True:
+            try:
+                self._run()
+            except Exception as e:
+                self.logger.error(e)
+
 if __name__ == '__main__':
 
     for vm, snapshot in config.ACTIVE_VMS:
         VmWatchDog(vm).heartbeat()
 
     common.setup_logging('vm-watchdog.log')
+
     print 'starting heartbeat thread...'
     heartbeat_thread = VmHeartbeat().start()
 

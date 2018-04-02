@@ -33,6 +33,7 @@ def extract_features(du, run_id):
 
         if feature_writer.already_exists():
             logging.info('feature extract for {} already exists, skipping...'.format(du.sample))
+            continue
 
         feature_ext_class(feature_writer).run(du.get_output(run_id))
 
@@ -51,14 +52,14 @@ class FeatureExtractorWorker(threading.Thread):
 
     def _run(self):
         if self.queue.processing_depth() > 0:
-            logging.info('recovery mode')
+            logging.info('enter recovery mode')
             while self.queue.processing_depth > 0:
                 msg = self.queue.dequeue_recovery()
                 if msg is None:
                     break
 
                 self.process(msg[1])
-
+            logging.info('exit recovery mode')
         while self.running:
             self.logger.info('polling {}, queue depth: {}, processing depth: {}'.format(self.queue.get_processing_list(),
                                                                                         self.queue.queue_depth(),
@@ -76,6 +77,7 @@ class FeatureExtractorWorker(threading.Thread):
             extract_features(du, int(json.loads(msg)['run_id']))
         else:
             self.logger.info('skipping {}, not successful'.format(du.sample))
+
         self.queue.commit(msg)
 
     def run(self):
@@ -96,7 +98,7 @@ if __name__ == '__main__':
     setup_logging('feature_extractor.log')
     instance_name = sys.argv[1] if len(sys.argv) > 1 else 'default'
     workers = [FeatureExtractorWorker(config.REDIS_UPLOAD_QUEUE_NAME,
-                                      '{}-{}'.format(instance_name, w)) for w in range(0, 3)]
+                                      '{}-{}'.format(instance_name, w)) for w in range(0, 1)]
 
     for w in workers:
         w.start()

@@ -7,6 +7,7 @@ from enum import Enum
 import pdb
 import sys
 import logging
+import gc
 
 
 class FextMemRwDump:
@@ -155,22 +156,21 @@ class FextMemRwDump:
             df = FextMemRwDump.get_df_from_file(get_pintool_output(fn), access_type)
 
             for instr_chunk_sz in [1000, 2000, 5000]:
-                for mode in FextMemRwDump.MemOffsetMode:
+                for feature_set in FextMemRwDump.MemOffsetMode:
 
-                    if mode == FextMemRwDump.MemOffsetMode.DEFAULT:
+                    if feature_set == FextMemRwDump.MemOffsetMode.DEFAULT:
                         continue
 
                     if len(df) < instr_chunk_sz:
                         self.logger.warn('not enough instructions to fill a chunk, skipping...')
                         continue
 
-                    feature_name = "%s-%s-%s" % (access_type, mode, instr_chunk_sz)
+                    feature_name = "%s-%s-%s" % (access_type, feature_set, instr_chunk_sz)
                     self.logger.info('extracting feature: {}'.format(feature_name))
                     sys.stdout.flush()
 
                     # Split mem access into chunks, and calculate the mem access delta (from first in chunk)
-                    chunk_tgt_deltas = FextMemRwDump.get_chunk_mem_deltas(df, instr_chunk_sz, mode)
-                    #print 'chunk deltas: %s' % chunk_tgt_deltas
+                    chunk_tgt_deltas = FextMemRwDump.get_chunk_mem_deltas(df, instr_chunk_sz, feature_set)
 
                     # Produce histogram
                     if len(chunk_tgt_deltas) < 3:
@@ -181,15 +181,7 @@ class FextMemRwDump:
                                                                     self.feature_set_writer)
                     # TODO: We don't want to write scientific notation
                     self.feature_set_writer.write_feature_set(feature_name, hist.tolist())
-
-                    #print "a: %s" % (type(counts.tolist()[0]))
-                    #print 'histogram buckets: %s' % divisions
-                    #print 'histogram counts: %s' % counts
-                    #print '--'
+                    gc.collect()
 
         self.feature_set_writer.write_feature_sets()
-
-if __name__ == '__main__':
-    feature_set_writer = FeatureSetsWriter('', "traceme.exe", 0, EXTRACTOR_NAME, __version__)
-    fmrd = FextMemRwDump(feature_set_writer)
-    fmrd.run('aext-mem-rw-dump.out')
+        self.logger.info('finished')

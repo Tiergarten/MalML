@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 VBOX_PATH="/cygdrive/c/Program Files/Oracle/VirtualBox"
 
@@ -19,6 +20,11 @@ function manage() {
 
 function stopVm() {
 	local vmName=$1
+
+	if [[ "$(isRunning ${vmName})" -ne "1" ]];then
+	    echo "WARN: vm not running, returning..."
+	    return
+    fi
 
     info "Sending stop signal to vm ${vmName}"
 	manage controlvm ${vmName} poweroff

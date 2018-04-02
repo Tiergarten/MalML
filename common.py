@@ -11,6 +11,8 @@ import sys
 import redis
 import threading
 from config import LOGS_DIR
+import subprocess
+import psutil
 
 class DetonationSample:
     def __init__(self, sample):
@@ -224,7 +226,7 @@ class ReliableQueue:
         return self.r.blpop(self.get_processing_list(), self.blocking_timeout)
 
     def commit(self, msg):
-        return self.r.lrem(self.producer_queue, msg)
+        return self.r.lrem(self.get_processing_list(), msg)
 
     def queue_depth(self):
         return self.r.llen(self.producer_queue)
@@ -238,6 +240,37 @@ class ReliableQueue:
     def clear_processing_queues(self):
         for k in self.r.keys('{}:*'.format(self.consumer_queue_prefix)):
             self.r.delete(k)
+
+
+class TimeoutExec:
+    def __init__(self, cmdline, timeout_mins):
+        self.cmdline = cmdline
+        self.timeout = timeout_mins
+
+    def do_exec(self):
+        logging.info('calling {}'.format(self.cmdline))
+
+        p = subprocess.Popen(self.cmdline, shell=True)
+
+        psid = psutil.Process(p.pid)
+        try:
+            psid.wait(timeout=1 * 60)
+        except psutil.TimeoutExpired:
+            self.kill_long_running_process(p.pid)
+
+    def kill_long_running_process(self, pid):
+        logging.error('Timeout breached - {}'.format(self.cmdline))
+        parent = psutil.Process(pid)
+        for child in parent.children(recursive=True):
+            try:
+                child.kill()
+            except:
+                pass
+        try:
+            parent.kill()
+        except:
+            pass
+        logging.warn('killed long running script: {}'.format(pid))
 
 
 if __name__ == '__main__':
