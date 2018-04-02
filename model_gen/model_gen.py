@@ -4,6 +4,12 @@ from mg_common import *
 import config
 from pyspark.mllib.regression import LabeledPoint
 import json
+from pyspark.sql.session import SparkSession
+import time
+from pyspark.mllib.tree import DecisionTree, DecisionTreeModel
+from pyspark.mllib.util import MLUtils
+from pyspark.mllib.classification import SVMWithSGD, SVMModel
+
 
 FEATURE_FAM = 'ext-mem-rw-dump'
 
@@ -192,6 +198,103 @@ def get_features_from_disk():
 
     return benign, random.sample(malware, len(benign))
 
+def get_feature_set_from_lps(fset_nm, lps):
+    ret = []
+
+    for sample in lps:
+        for feature_set_nm, data in lps[sample]:
+            if feature_set_nm == fset_nm:
+                ret.append((sample, data))
+
+    return ret
+
+def get_df(data):
+    return SparkSession.builder.getOrCreate().createDataFrame(data)
+
+def get_train_test_split(labelled_rdd, split_n=10):
+    ret = []
+    splits = labelled_rdd.randomSplit([float(1) / split_n] * split_n, seed=int(time.time()))
+    for i in range(0, split_n):
+        test = splits[i]
+
+        train_list = list(splits)
+        train_list.remove(test)
+
+        train_rdd = train_list[0]
+        for train_idx in range(1, len(train_list)):
+            train_rdd.union(train_list[train_idx])
+
+        ret.append((test, train_rdd))
+
+    return ret
+
+def train_classifier_and_measure(ctype, training_data, test_data):
+    if ctype == "svm":
+        model = SVMWithSGD.train(training_data, iterations=100)
+    elif ctype == "rf":
+        model = DecisionTree.trainClassifier(training_data, 2, categoricalFeaturesInfo={}, impurity='gini', maxDepth=5,
+                                             maxBins=32)
+
+    output = []
+    for lp in test_data.collect():
+        output.append((lp.label, float(model.predict(lp.features))))
+
+    return output
+
+class ResultStats:
+    def __init__(self, label, results):
+        self.results = results
+
+        self.tp = self.get_result_cnt(results, actual=1.0, predicted=1)
+        self.tn = self.get_result_cnt(results, actual=0.0, predicted=0)
+
+        self.fp = self.get_result_cnt(results, actual=0.0, predicted=1)
+        self.fn = self.get_result_cnt(results, actual=1.0, predicted=0)
+
+        self.total_measures = self.tp + self.tn + self.fp + self.fn
+
+        self.label = label
+
+    @staticmethod
+    def get_result_cnt(results, actual, predicted):
+        return len(filter(lambda pair: pair[0] == actual and pair[1] == predicted, results))
+
+    def get_total_measures(self): return self.tp + self.tn + self.fp + self.fn
+
+    def get_accuracy(self):
+        return float(self.tp + self.tn) / self.get_total_measures() if self.tp + self.tn > 0 else 0
+
+    def get_precision(self):
+        return float(self.tp) / (self.tp + self.tn) if self.tp > 0 else 0
+
+    def get_recall(self):
+        return float(self.tp) / self.get_total_measures() if self.tp > 0 else 0
+
+    def get_specificity(self):
+        return float(self.tn) / self.get_total_measures() if self.tn > 0 else 0
+
+    def get_f1_score(self):
+        return 2 * float(self.get_recall() + self.get_precision()) / self.get_recall() + self.get_precision() \
+            if self.get_recall() + self.get_precision() > 0 else 0
+
+    def get_area_under_roc(self):
+        return BinaryClassificationMetrics(get_df(self.results).rdd).areaUnderROC
+
+    def to_numpy(self):
+        return np.array(
+            [self.get_accuracy(), self.get_precision(), self.get_recall(), self.get_specificity(), self.get_f1_score(),
+             self.get_area_under_roc()])
+
+    @staticmethod
+    def print_numpy(np):
+        return "[Accuracy: %f, Precision: %f, Recall: %f, Specificity: %f, F1: %f AuROC: %f]" % (
+        np[0], np[1], np[2], np[3], np[4], np[5])
+
+    def __str__(self):
+        return "[Label: %s][TP: %d TN: %d FP: %d FN: %d] [Accuracy: %f] [Precision: %f] [Recall: %f] [Specificity: %f] [F1 Score: %f]" % (
+        self.label, self.tp, self.tn, self.fp, self.fn, self.get_accuracy(), self.get_precision(), self.get_recall(),
+        self.get_specificity(), self.get_f1_score())
+
 if __name__ == '__main__':
     """
     with open('features/615cc5670435e88acb614c467d6dc9b09637f917f02f3b14cd8460d1ac6058ec/2/ext-mem-rw-dump-0.0.1.json') as fd:
@@ -201,6 +304,8 @@ if __name__ == '__main__':
     print SampleLabelPredicter(DetonationSample('ff808d0a12676bfac88fd26f955154f8884f2bb7c534b9936510fd6296c543e8')).get_label()
 """
 
+    setup_logging('model_gen.log')
+
     benign, malware = get_features_from_disk()
     blps, mlps = ModelInputBuilder.get_features_lps_from_samples(benign, malware)
 
@@ -208,5 +313,21 @@ if __name__ == '__main__':
 
     feature_sets = [x[0] for x in [f for f in blps[blps.keys()[0]]]]
     for i in feature_sets:
-        pass
-        # TODO: train model
+        # (sample_nm, LabeledPoint(1.0, [features])
+        data = get_feature_set_from_lps(i, blps) + get_feature_set_from_lps(i, mlps)
+        print data
+
+        # TODO: Why does this strip away the LabeledPoint and leave a DenseVector !?
+        data_df = get_df(data)
+
+        count = 0
+        for train, test in get_train_test_split(data_df.rdd, 2):
+
+            # TODO: Why is it sample, Row(DenseVector... ? .... WTF IS THIS >>
+            model_predictions = train_classifier_and_measure('svm',
+                                                             train.map(lambda r: LabeledPoint(r[1][1], r[1][0])),
+                                                             test.map(lambda r: LabeledPoint(r[1][1], r[1][0])))
+
+            iteration_results = ResultStats('svm', model_predictions)
+            logging.info("Fold: %d %s", count, iteration_results)
+            count += 1
