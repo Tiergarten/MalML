@@ -6,6 +6,7 @@ import config
 import traceback
 import logging
 import objgraph
+import gc
 
 from feature_extractors import fext_common
 
@@ -37,6 +38,7 @@ def extract_features(du, run_id):
 
         # Doesn't seem to be garbage collected due to the dynamic way it's instantiated
         del feature_ext_class
+        gc.collect()
 
 
 class FeatureExtractorWorker(threading.Thread):

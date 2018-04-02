@@ -9,6 +9,7 @@ import time
 from pyspark.mllib.tree import DecisionTree, DecisionTreeModel
 from pyspark.mllib.util import MLUtils
 from pyspark.mllib.classification import SVMWithSGD, SVMModel
+from pyspark.mllib.evaluation import BinaryClassificationMetrics
 
 
 FEATURE_FAM = 'ext-mem-rw-dump'
@@ -291,9 +292,9 @@ class ResultStats:
         np[0], np[1], np[2], np[3], np[4], np[5])
 
     def __str__(self):
-        return "[Label: %s][TP: %d TN: %d FP: %d FN: %d] [Accuracy: %f] [Precision: %f] [Recall: %f] [Specificity: %f] [F1 Score: %f]" % (
+        return "[%s][TP:%d TN:%d FP:%d FN:%d] [Acc: %f] [Prec: %f] [Recall: %f] [Specif: %f] [F1: %f] [AuROC:%f]" % (
         self.label, self.tp, self.tn, self.fp, self.fn, self.get_accuracy(), self.get_precision(), self.get_recall(),
-        self.get_specificity(), self.get_f1_score())
+        self.get_specificity(), self.get_f1_score(), self.get_area_under_roc())
 
 if __name__ == '__main__':
     """
@@ -309,13 +310,13 @@ if __name__ == '__main__':
     benign, malware = get_features_from_disk()
     blps, mlps = ModelInputBuilder.get_features_lps_from_samples(benign, malware)
 
-    print 'blps: {}, mlps: {}'.format(len(blps), len(mlps))
+    logging.info('source dataset: benign: {}, malware: {}'.format(len(blps), len(mlps)))
 
     feature_sets = [x[0] for x in [f for f in blps[blps.keys()[0]]]]
     for i in feature_sets:
+
         # (sample_nm, LabeledPoint(1.0, [features])
         data = get_feature_set_from_lps(i, blps) + get_feature_set_from_lps(i, mlps)
-        print data
 
         # TODO: Why does this strip away the LabeledPoint and leave a DenseVector !?
         data_df = get_df(data)
@@ -329,5 +330,5 @@ if __name__ == '__main__':
                                                              test.map(lambda r: LabeledPoint(r[1][1], r[1][0])))
 
             iteration_results = ResultStats('svm', model_predictions)
-            logging.info("Fold: %d %s", count, iteration_results)
+            logging.info("[%s] [F%d] [train:%d, test:%d] %s", i, count, train.count(), test.count(), iteration_results)
             count += 1
