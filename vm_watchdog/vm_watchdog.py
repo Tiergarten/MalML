@@ -10,6 +10,7 @@ import redis
 import common
 import requests
 from Queue import Queue
+import psutil
 
 r = redis.Redis(host=config.REDIS_HOST, port=config.REDIS_PORT)
 
@@ -17,18 +18,27 @@ r = redis.Redis(host=config.REDIS_HOST, port=config.REDIS_PORT)
 class VmWatchDog:
     def __init__(self, vm_name):
         self.vm_name = vm_name
+        self.queue_key = 'vm_watchdog'
+        self.queue_instance = 'win7workstation' # TODO: src from YAML
+
+    def get_queue(self):
+        return '{}:{}'.format(self.queue_key,
+                              self.queue_instance)
 
     def reset(self):
-        r.rpush('vmwatchdog:win7workstation', json.dumps({
+        self.push({
             'vm_name': self.vm_name,
             'action': 'reset'
-        }))
+        })
 
     def restore(self):
-        r.rpush('vmwatchdog:win7workstation', json.dumps({
+        self.push({
             'vm_name': self.vm_name,
             'action': 'restore'
-        }))
+        })
+
+    def push(self, dict):
+        r.rpush(self.get_queue(), json.dumps(dict))
 
     def heartbeat(self):
         VmHeartbeat().heartbeat(self.vm_name)
@@ -100,6 +110,20 @@ class VboxManager(threading.Thread):
         self.blocking = True
         self.logger = logging.getLogger('{}_{}'.format(self.__class__.__name__, self.vm_name))
 
+        def kill_long_running_process(self, pid):
+            print 'timeout_mins breached, killing process'
+            parent = psutil.Process(pid)
+            for child in parent.children(recursive=True):
+                try:
+                    child.kill()
+                except:
+                    pass
+            try:
+                parent.kill()
+            except:
+                pass
+            self.set_run_status(self.meta_data, 'WARN', 'breached agent timeout ({}m)'.format(EXEC_TIMEOUT_MINS))
+
 
     def call_ctrl_script(self, action):
         cmdline = "{} -v '{}' -s '{}' -a '{}'".format(self.script_path, self.vm_name,
@@ -107,10 +131,12 @@ class VboxManager(threading.Thread):
 
         self.logger.info('calling {}'.format(cmdline))
 
-        if self.blocking:
-            return subprocess.Popen(cmdline, shell=True).communicate()[0]
-        else:
-            subprocess.Popen(cmdline, shell=True)
+        p = subprocess.Popen(cmdline)
+        psid = psutil.Process(p.pid)
+        try:
+            psid.wait(timeout=1 * 60)
+        except psutil.TimeoutExpired:
+            self.kill_long_running_process(p.pid)
 
     def restart(self):
         return self.call_ctrl_script('restart')
@@ -139,8 +165,8 @@ class VboxManager(threading.Thread):
 class VmHeartbeat(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)
-        self.heartbeat_hash_name = 'heartbeat'
-        self.curr_processing_hash_name = 'processing'
+        self.heartbeat_hash_name = 'vm_watchdog:heartbeat'
+        self.curr_processing_hash_name = 'vm_watchdog:processing'
         self.timeout_secs_limit = config.VM_HEARTBEAT_TIMEOUT_MINS * 60
         self.poll_tm_secs = 60
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -164,7 +190,7 @@ class VmHeartbeat(threading.Thread):
         return idle_secs > self.timeout_secs_limit
 
     def create_bad_sample_metadata_json(self, sample, uuid, run_id):
-        uri = 'http://192.168.1.145:5000/agent/error/{}/{}/{}'.format(sample, uuid, run_id)
+        uri = 'http://{}/agent/error/{}/{}/{}'.format(config.EXT_IF, sample, uuid, run_id)
         self.logger.info('calling {}'.format(uri))
         r = requests.post(uri, {'status':'ERR', 'status_msg':'vm watchdog timeout'})
         self.logger.info(r.text)
