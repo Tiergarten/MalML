@@ -7,10 +7,28 @@ function info() {
     echo "[$$] [INFO] $@"
 }
 
+function getStatus() {
+    local vmName=$1
+
+    STATUS=$(manage showvminfo ${vmName} | grep State | sed 's/  */ /g' | cut -d ' ' -f 2)
+    echo ${STATUS}
+}
+
 function isRunning() {
 	local vmName=$1
 
-	manage showvminfo ${vmName} | grep -c "running (since"
+	isStatus ${vmName} "running"
+}
+
+function isStatus() {
+    local vmName=$1
+    local status=$2
+
+    if [[ $(getStatus ${vmName}) == "${status}" ]]; then
+        echo 1
+    else
+        echo 0
+    fi
 }
 
 function manage() {
@@ -20,6 +38,10 @@ function manage() {
 
 function stopVm() {
 	local vmName=$1
+
+	if [[ "$(isStatus ${vmName} 'paused')" == "1" ]]; then
+	    resumeVm ${vmName}
+    fi
 
 	if [[ "$(isRunning ${vmName})" -ne "1" ]];then
 	    echo "WARN: vm not running, returning..."
@@ -60,6 +82,13 @@ function restoreSnapshot() {
 	local snapshotName=$2
 
 	manage snapshot ${vmName} restore "${snapshotName}"
+}
+
+function resumeVm() {
+    local vmName=$1
+
+    echo "WARN: unpausing vm...."
+    manage controlvm ${vmName} resume
 }
 
 function main() {
