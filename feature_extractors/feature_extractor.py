@@ -98,7 +98,7 @@ if __name__ == '__main__':
     setup_logging('feature_extractor.log')
     instance_name = sys.argv[1] if len(sys.argv) > 1 else 'default'
     workers = [FeatureExtractorWorker(config.REDIS_UPLOAD_QUEUE_NAME,
-                                      '{}-{}'.format(instance_name, w)) for w in range(0, 1)]
+                                      '{}-{}'.format(instance_name, w)) for w in range(0, 3)]
 
     for w in workers:
         w.start()

@@ -10,7 +10,7 @@ from pyspark.mllib.tree import DecisionTree, DecisionTreeModel
 from pyspark.mllib.util import MLUtils
 from pyspark.mllib.classification import SVMWithSGD, SVMModel
 from pyspark.mllib.evaluation import BinaryClassificationMetrics
-
+import numpy as np
 
 FEATURE_FAM = 'ext-mem-rw-dump'
 
@@ -197,7 +197,9 @@ def get_features_from_disk():
         else:
             benign.append(ds.sample)
 
-    return benign, random.sample(malware, len(benign))
+    logging.info('source, benign: {}, malware: {}'.format(len(benign), len(malware)))
+
+    return benign, malware
 
 def get_feature_set_from_lps(fset_nm, lps):
     ret = []
@@ -307,7 +309,9 @@ if __name__ == '__main__':
 
     setup_logging('model_gen.log')
 
+    # TODO: This gets _ALL_ samples, we need to be more selective
     benign, malware = get_features_from_disk()
+
     blps, mlps = ModelInputBuilder.get_features_lps_from_samples(benign, malware)
 
     logging.info('source dataset: benign: {}, malware: {}'.format(len(blps), len(mlps)))
@@ -322,7 +326,8 @@ if __name__ == '__main__':
         data_df = get_df(data)
 
         count = 0
-        for train, test in get_train_test_split(data_df.rdd, 2):
+        results = []
+        for train, test in get_train_test_split(data_df.rdd, 10):
 
             # TODO: Why is it sample, Row(DenseVector... ? .... WTF IS THIS >>
             model_predictions = train_classifier_and_measure('svm',
@@ -330,5 +335,8 @@ if __name__ == '__main__':
                                                              test.map(lambda r: LabeledPoint(r[1][1], r[1][0])))
 
             iteration_results = ResultStats('svm', model_predictions)
+            results.append(iteration_results.to_numpy())
             logging.info("[%s] [F%d] [train:%d, test:%d] %s", i, count, train.count(), test.count(), iteration_results)
             count += 1
+
+        logging.info("[%s] [K%d] %s", i, 10, ResultStats.print_numpy(np.average(results, axis=0)))

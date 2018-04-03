@@ -142,8 +142,14 @@ class FextMemRwDump:
         tdeltas = pd.DataFrame(chunk_deltas)
 
         # Emit chunk metadata (min,max), so we can see if range should expand as we process BAU
-        minmax_metadata = {'histogram_min': FextMemRwDump.get_val(tdeltas.min()), 'histogram_max': FextMemRwDump.get_val(tdeltas.max())}
-        feature_set_writer.write_metadata(feature_name, minmax_metadata)  # TODO: use of str() is broken here...
+        minmax_metadata = {
+                              'histogram_min': FextMemRwDump.get_val(tdeltas.min()),
+                              'histogram_max': FextMemRwDump.get_val(tdeltas.max()),
+                              'histogram_mean': FextMemRwDump.get_val(tdeltas.mean()),
+                              'histogram_std_dev': FextMemRwDump.get_val(tdeltas.std())
+        }
+
+        feature_set_writer.write_metadata(feature_name, minmax_metadata)
 
         # TODO: We will need to set static 'range' here so results are comparable across all binaries
         return np.histogram(tdeltas)
