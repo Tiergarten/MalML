@@ -10,6 +10,7 @@ from pyspark.mllib.util import MLUtils
 from pyspark.mllib.classification import SVMWithSGD, SVMModel
 import numpy as np
 from datetime import datetime
+import uuid
 
 FEATURE_FAM = 'ext-mem-rw-dump'
 
@@ -141,19 +142,30 @@ def get_train_test_split(labelled_rdd, split_n=10):
 
         train_rdd = train_list[0]
         for train_idx in range(1, len(train_list)):
-            train_rdd.union(train_list[train_idx])
+            train_rdd = train_rdd.union(train_list[train_idx])
 
-        ret.append((test, train_rdd))
+        ret.append((train_rdd, test))
 
     return ret
 
 
 def train_classifier_and_measure(ctype, training_data, test_data):
+    # TODO: Check it doesn't already exist
+
     if ctype == "svm":
         model = SVMWithSGD.train(training_data, iterations=100)
     elif ctype == "rf":
         model = DecisionTree.trainClassifier(training_data, 2, categoricalFeaturesInfo={}, impurity='gini', maxDepth=5,
                                              maxBins=32)
+
+    model_uuid = uuid.uuid4().hex
+    model_path = os.path.join(config.MODELS_DIR, 'raw', model_uuid, 'model_0')
+
+    create_dirs_if_not_exist(model_path)
+    model.save(SparkContext.getOrCreate(), model_path)
+    logging.info('wrote {}'.format(model_path))
+
+    # TODO: Write metadata: (train)sampleset, normalization, hyper parameters
 
     output = []
     for lp in test_data.collect():
@@ -188,9 +200,10 @@ if __name__ == '__main__':
 
     # TODO: This gets _ALL_ samples, we need to be more selective
     all_samples = get_sample_set_from_disk()
-
     mib = ModelInputBuilder(all_samples)
     mib.load_samples()
+
+    # TODO: Can we tag models with sample sets, so if we re-load the same sample set we don't need to re-train?
 
     for feature_nm in mib.get_features():
         data = mib.get_lps_for_feature(feature_nm)

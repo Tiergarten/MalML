@@ -22,6 +22,7 @@ SAMPLES_DIR = os.path.join(DATA_DIR, 'samples')
 UPLOADS_DIR = os.path.join(DATA_DIR, 'uploads')
 FEATURES_DIR = os.path.join(DATA_DIR, 'features')
 LOGS_DIR = os.path.join(DATA_DIR, 'logs')
+MODELS_DIR = os.path.join(DATA_DIR, 'models')
 
 
 ES_CONF_SAMPLES = ('malml-sample', 'metadata')

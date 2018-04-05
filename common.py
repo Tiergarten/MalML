@@ -152,8 +152,13 @@ def get_feature_families_produced_by_pack(pack_nm):
 
 
 def create_dirs_if_not_exist(path):
+    if os.path.isfile(path):
+        _path = os.path.basename(path)
+    else:
+        _path = path
+
     try:
-        os.makedirs(path)
+        os.makedirs(_path)
     except:
         pass
 
