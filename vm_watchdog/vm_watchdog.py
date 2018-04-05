@@ -12,6 +12,8 @@ import requests
 from Queue import Queue, Empty
 import psutil
 from common import TimeoutExec
+import getopt
+import sys
 
 r = redis.Redis(host=config.REDIS_HOST, port=config.REDIS_PORT)
 
@@ -39,6 +41,8 @@ class VmWatchDog:
         })
 
     def push(self, dict):
+        # Fire heartbeat to avoid race where action already queued
+        self.heartbeat()
         r.rpush(self.get_queue(), json.dumps(dict))
 
     def heartbeat(self):
@@ -177,6 +181,9 @@ class VmHeartbeat(threading.Thread):
 
     def is_timeout_expired(self, vm):
         idle_since = r.hget(self.heartbeat_hash_name, vm)
+        if idle_since is None or idle_since == '':
+            return True
+
         idle_secs = (datetime.now() - datetime.fromtimestamp(float(idle_since))).seconds
         self.logger.info('{} idle for {}s'.format(vm, idle_secs))
         return idle_secs > self.timeout_secs_limit
@@ -216,11 +223,19 @@ class VmHeartbeat(threading.Thread):
 
 if __name__ == '__main__':
 
-    for vm, snapshot in config.ACTIVE_VMS:
-        VmWatchDog(vm).heartbeat()
+    heartbeat_init = True
+    opts, excess = getopt.getopt(sys.argv[1:], '', ['dont-init'])
+    for opt, arg in opts:
+        if opt in ('--dont-init'):
+            heartbeat_init = False
+
+    if heartbeat_init:
+        for vm, snapshot in config.ACTIVE_VMS:
+            VmWatchDog(vm).heartbeat()
 
     common.setup_logging('vm-watchdog.log')
 
+    # TODO: this should probably know what VmWatchdogService is doing to avoid a race??
     print 'starting heartbeat thread...'
     heartbeat_thread = VmHeartbeat().start()
 

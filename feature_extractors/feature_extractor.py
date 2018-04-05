@@ -24,12 +24,13 @@ def get_feature_extractor_for_pack(module, clazz):
 def extract_features(du, run_id):
     metadata = DetonationMetadata(du)
 
-    for (module, clazz) in get_fexts_for_pack(metadata.get_extractor()):
+    for (module, clazz) in get_fexts_for_pack(metadata.get_extractor_pack()):
         feature_ext_class = get_feature_extractor_for_pack(module, clazz)
 
         feature_writer = fext_common.FeatureSetsWriter(config.FEATURES_DIR, du.sample, run_id,
                                                        feature_ext_class.extractor_name,
-                                                       feature_ext_class.__version__)
+                                                       feature_ext_class.__version__,
+                                                       metadata)
 
         if feature_writer.already_exists():
             logging.info('feature extract for {} already exists, skipping...'.format(du.sample))
@@ -98,7 +99,7 @@ if __name__ == '__main__':
     setup_logging('feature_extractor.log')
     instance_name = sys.argv[1] if len(sys.argv) > 1 else 'default'
     workers = [FeatureExtractorWorker(config.REDIS_UPLOAD_QUEUE_NAME,
-                                      '{}-{}'.format(instance_name, w)) for w in range(0, 3)]
+                                      '{}-{}'.format(instance_name, w)) for w in range(0, 1)]
 
     for w in workers:
         w.start()

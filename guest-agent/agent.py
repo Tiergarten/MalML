@@ -29,7 +29,7 @@ CONTROLLER = "http://192.168.1.145:5000"
 CALLBACK_URI = "{}/agent/callback".format(CONTROLLER)
 UPLOAD_URI = "{}/agent/upload".format(CONTROLLER)
 INSTALL_DIR = '.'
-EXEC_TIMEOUT_MINS = 5
+EXEC_TIMEOUT_MINS = 3
 
 
 class MyURLopener(urllib.FancyURLopener):
@@ -179,7 +179,7 @@ class ExtractorPackManager:
         self.meta_data['manifest'] = json.dumps(manifest)
 
         if os.path.isfile(fn):
-            self.meta_data['output-before-gz'] = os.path.getsize(fn)
+            self.meta_data['output_before_gz'] = os.path.getsize(fn)
             print '{} gzipping {} ({})'.format(datetime.datetime.now(), fn, os.path.getsize(fn))
             gzipped_f = '{}.gz'.format(fn)
 
@@ -187,7 +187,7 @@ class ExtractorPackManager:
                 with gzip.open(gzipped_f, 'wb') as gz:
                     gz.writelines(fd)
 
-            self.meta_data['output-after-gz'] = os.path.getsize(gzipped_f)
+            self.meta_data['output_after_gz'] = os.path.getsize(gzipped_f)
 
             print '{} uploading {} ({})'.format(datetime.datetime.now(), gzipped_f, os.path.getsize(gzipped_f))
 

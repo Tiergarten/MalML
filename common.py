@@ -55,8 +55,14 @@ class DetonationUpload:
         with open(self.get_metadata_path(run_id), 'r') as fd:
             return json.loads(fd.read())
 
-    def isSuccess(self, run_id=0):
+    def md_exists(self, run_id=0):
         if not os.path.exists(self.get_metadata_path(run_id)):
+            return False
+
+        return True
+
+    def isSuccess(self, run_id=0):
+        if not self.md_exists(run_id):
             return False
 
         md = self.get_metadata(run_id)
@@ -87,13 +93,17 @@ class DetonationUpload:
 
 class DetonationMetadata:
     def __init__(self, detonation):
-        self. detonation = detonation
+        self.detonation_upload = detonation
+        self.metadata = self.detonation_upload.get_metadata()
 
     def get_node(self):
-        pass
+        return self.metadata['node']
 
-    def get_extractor(self):
-        return 'pack-1'
+    def get_extractor_pack(self):
+        return self.metadata['extractor-pack']
+
+    def get_uuid(self):
+        return self.metadata['uuid']
 
 
 def get_detonator_uploads(upload_dir):
@@ -190,6 +200,10 @@ def setup_logging(_log_fn):
 def detonation_upload_to_es(detonation_upload, run_id):
     es = get_elastic()
     _id = '{}-{}-{}'.format(detonation_upload.sample, detonation_upload.uuid, run_id)
+
+    if not detonation_upload.md_exists(run_id):
+        print 'skipping {}'.format(detonation_upload.sample)
+        return
 
     metadata = detonation_upload.get_metadata(run_id)
     metadata['sample'] = detonation_upload.sample

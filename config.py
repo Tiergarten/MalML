@@ -7,7 +7,7 @@ DETONATOR_DIR = os.path.dirname(os.path.realpath(__file__))
 EXT_IF = 'http://192.168.1.145:5000'
 EXTRACTOR_PACK_URL = '{}/agent/extractor_pack/default'.format(EXT_IF)
 
-_ACTIVE_VMS = [('win7_sp1_ent-dec_2011', 'autorun v0.3', 4)]
+_ACTIVE_VMS = [('win7_sp1_ent-dec_2011', 'autorun v0.3', 6)]
 ACTIVE_VMS = []
 for suite in _ACTIVE_VMS:
     for i in range(1, suite[2]+1):
@@ -28,7 +28,7 @@ MODELS_DIR = os.path.join(DATA_DIR, 'models')
 ES_CONF_SAMPLES = ('malml-sample', 'metadata')
 ES_CONF_UPLOADS = ('malml-upload', 'metadata')
 
-VM_HEARTBEAT_TIMEOUT_MINS = 8
+VM_HEARTBEAT_TIMEOUT_MINS = 5
 
 
 REDIS_HOST = 'localhost'

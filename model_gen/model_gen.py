@@ -199,7 +199,8 @@ if __name__ == '__main__':
     setup_logging('model_gen.log')
 
     # TODO: This gets _ALL_ samples, we need to be more selective
-    all_samples = get_sample_set_from_disk()
+    all_samples = get_sample_set_from_disk(balanced=True)
+
     mib = ModelInputBuilder(all_samples)
     mib.load_samples()
 
