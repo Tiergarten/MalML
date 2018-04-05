@@ -158,6 +158,13 @@ class FextMemRwDump:
         pd.set_option('display.float_format', lambda x: '%.2f' % x)
         np.set_printoptions(suppress=True)
 
+        """
+        from_file = get_pintool_output(fn)
+        if len(from_file) == 0:
+            self.logger.warn('no data in {}, skipping', fn)
+            return
+"""
+
         for access_type in ['R', 'W', 'RW']:
             df = FextMemRwDump.get_df_from_file(get_pintool_output(fn), access_type)
 

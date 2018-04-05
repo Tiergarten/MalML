@@ -33,7 +33,7 @@ def create_dirs_if_not_exist(path):
 
 
 class FeatureSetsWriter:
-    def __init__(self, output_dir, sample_id, run_id, feature_set_name, feature_set_ver):
+    def __init__(self, output_dir, sample_id, run_id, feature_set_name, feature_set_ver, metadata):
         self.body = {}
         self.feature_sets = {}
 
@@ -42,6 +42,9 @@ class FeatureSetsWriter:
         self.body['run_id'] = str(run_id)
         self.body['feature_set_name'] = feature_set_name
         self.body['feature_set_ver'] = feature_set_ver
+        self.body['node'] = metadata.get_node()
+        self.body['extractor-pack'] = metadata.get_extractor_pack()
+        self.body['uuid'] = metadata.get_uuid()
 
 
     def get_filename(self):

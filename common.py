@@ -87,13 +87,17 @@ class DetonationUpload:
 
 class DetonationMetadata:
     def __init__(self, detonation):
-        self. detonation = detonation
+        self.detonation_upload = detonation
+        self.metadata = self.detonation_upload.get_metadata()
 
     def get_node(self):
-        pass
+        return self.metadata['node']
 
-    def get_extractor(self):
-        return 'pack-1'
+    def get_extractor_pack(self):
+        return self.metadata['extractor-pack']
+
+    def get_uuid(self):
+        return self.metadata['uuid']
 
 
 def get_detonator_uploads(upload_dir):
