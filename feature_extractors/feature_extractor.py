@@ -24,7 +24,7 @@ def get_feature_extractor_for_pack(module, clazz):
 def extract_features(du, run_id):
     metadata = DetonationMetadata(du)
 
-    for (module, clazz) in get_fexts_for_pack(metadata.get_extractor()):
+    for (module, clazz) in get_fexts_for_pack(metadata.get_extractor_pack()):
         feature_ext_class = get_feature_extractor_for_pack(module, clazz)
 
         feature_writer = fext_common.FeatureSetsWriter(config.FEATURES_DIR, du.sample, run_id,

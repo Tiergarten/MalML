@@ -27,7 +27,7 @@ LOGS_DIR = os.path.join(DATA_DIR, 'logs')
 ES_CONF_SAMPLES = ('malml-sample', 'metadata')
 ES_CONF_UPLOADS = ('malml-upload', 'metadata')
 
-VM_HEARTBEAT_TIMEOUT_MINS = 8
+VM_HEARTBEAT_TIMEOUT_MINS = 5
 
 
 REDIS_HOST = 'localhost'

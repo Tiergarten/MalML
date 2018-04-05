@@ -26,6 +26,7 @@ http_headers = {
 }
 
 
+# FIXME: fugly
 class SampleImporter:
     def __init__(self, input_sample_dir, master_sample_dir):
         self.input_sample_dir = input_sample_dir
@@ -57,22 +58,36 @@ class SampleImporter:
                 'arch': self.get_arch(os.path.join(self.input_sample_dir, sample_nm))
             }
 
+    def is_blacklisted(self, jdata):
+        arch = jdata['arch'].lstrip()
+
+        if not arch.startswith('PE32'):
+            return True
+
+        if '(DLL)' in arch:
+            return True
+
+        return False
+
     def write_sample_metadata(self, sample_nm, source, label, elastic):
         sample_md_path = self.get_tgt_sample_metadata_file(sample_nm)
-        gen_metadata = self.get_json_metadata(sample_nm, source, label)
+        metadata = self.get_json_metadata(sample_nm, source, label)
+
+        if self.is_blacklisted(metadata):
+            logging.warn('skipping {}, blacklisted ({})'.format(sample_nm, metadata['arch']))
 
         if not os.path.exists(sample_md_path):
             with open(sample_md_path, 'w') as fd:
-                fd.write(json.dumps(gen_metadata, indent=4, sort_keys=True))
-            print 'wrote {}'.format(sample_md_path)
+                fd.write(json.dumps(metadata, indent=4, sort_keys=True))
+            logging.info('wrote {}'.format(sample_md_path))
         else:
             print '{} already exists, checking if ours'.format(sample_md_path)
             with open(sample_md_path, 'r') as fd:
                 metadata = json.loads(fd.read())
 
             if 'malml-sample-mgr' not in metadata:
-                print 'not ours, overwriting...'
-                gen_metadata['existing_metadata'] = metadata
+                logging.info('not ours, overwriting...')
+                metadata['existing_metadata'] = metadata
                 with open(sample_md_path, 'r') as fd:
                     fd.write(json.dumps(metadata, indent=4, sort_keys=True))
 
@@ -80,7 +95,7 @@ class SampleImporter:
             try :
                 self.write_sample_metadata_to_elastic(sample_nm, metadata)
             except Exception as e:
-                print 'WARN: {}'.format(e)
+                logging.warn(e)
 
 
     @staticmethod
@@ -153,7 +168,7 @@ class SampleImporter:
                 sample = os.path.join(self.input_sample_dir, f)
                 target = os.path.join(self.input_sample_dir, sha256_checksum(sample))
                 shutil.move(sample, target)
-                print '{} -> {}'.format(sample, target)
+                logging.info('renamed {} -> {}'.format(sample, target))
 
         for s in get_samples(self.input_sample_dir):
             self.write_sample_metadata(s, sample_src, sample_label, elastic)
@@ -202,6 +217,8 @@ if __name__ == '__main__':
     input_dir = ''
     existing_only = False
 
+    setup_logging('sample_mgr.log')
+
     opts, remaining = getopt.getopt(sys.argv[1:], 'qs:l:i:e',
                                     ['queue-samples', 'source', 'label', 'input-dir', 'existing'])
 
@@ -219,10 +236,11 @@ if __name__ == '__main__':
         si = SampleImporter('', config.SAMPLES_DIR)
         si.sync_master_with_elastic()
     else:
-        assert len(source) > 1 and len(input_dir) > 1 and len(label) > 1
+        assert len(source) > 1 and len(input_dir) > 1 and len(label) > 1, \
+            "usage: ./asdf.py -s <source> -i <input_dir> -l <label>"
 
-        print 'importing samples {} -> {}'.format(input_dir, config.SAMPLES_DIR)
-        print 'source: {}, label: {}'.format(source, label)
+        logging.info('importing samples {} -> {}'.format(input_dir, config.SAMPLES_DIR))
+        logging.info('source: {}, label: {}'.format(source, label))
 
         si = SampleImporter(input_dir, config.SAMPLES_DIR)
         si.import_samples(source, label, elastic=True)
