@@ -5,7 +5,7 @@ from datetime import datetime
 def debug_samples(s_to_exec, label, total):
     print '{}: {} ({})'.format(label, len(s_to_exec), float(len(s_to_exec))/total*100)
 
-    breakdown =  breakdown_by_source(s_to_exec)
+    breakdown =  samples_by_source_uniq(s_to_exec)
     for i in breakdown:
         print i, len(breakdown[i])
 
@@ -36,40 +36,38 @@ def get_all_es(query):
         return []
 
 
-def breakdown_by_source(input):
+def samples_by_source_uniq(input):
     counts = {}
 
     for upload in input:
         sample_sha = upload.sample
         sample = get_sample_by_id(sample_sha)['_source']
 
-        if sample['source'] in counts.keys() :
-            counts[sample['source']].append(sample_sha)
+        if sample['source'] in counts.keys():
+            counts[sample['source']].add(sample_sha)
         else:
-            counts[sample['source']] = [sample_sha]
+            counts[sample['source']] = set([sample_sha])
 
     return counts
 
 if __name__ == '__main__':
     total = UploadSearch().s().execute().hits.total
 
-
     good = get_all_es(UploadSearch().s().filter('match', status='OK'))
     bad = get_all_es(UploadSearch().s().filter('match', status='ERR'))
     warn = get_all_es(UploadSearch().s().filter('match', status='WARN'))
-
 
     debug_samples(good, 'GOOD', total)
     debug_samples(bad, 'ERR', total)
     debug_samples(warn, 'WARN', total)
 
-    for source in breakdown_by_source(good):
+
+    for source in samples_by_source_uniq(good):
         cnt = 0
-        for _sample in breakdown_by_source(good)[source]:
+        for _sample in samples_by_source_uniq(good)[source]:
             result = FeatureSearch(sample=_sample).search()
             if len(result) > 0 and len(list(result.hits[0].feature_sets)) > 0:
                 cnt += 1
-                #print result.hits[0].feature_sets
 
         print source, cnt
 

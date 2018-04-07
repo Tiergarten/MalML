@@ -11,6 +11,7 @@ from pyspark.mllib.classification import SVMWithSGD, SVMModel
 import numpy as np
 from datetime import datetime
 import uuid
+from pyspark.mllib.feature import StandardScaler
 
 FEATURE_FAM = 'ext-mem-rw-dump'
 
@@ -155,6 +156,37 @@ def get_train_test_split(labelled_rdd, split_n=10):
     return ret
 
 
+def normalize_std(train, test):
+    scaler = StandardScaler().fit(train.map(lambda r: r.features))
+
+    return train.map(lambda r: r.label).zip(scaler.transform(train.map(lambda r: r.features))), \
+           test.map(lambda r: r.label).zip(scaler.transform(test.map(lambda r: r.features)))
+
+def normalize_minmax(train, test):
+    pass
+
+
+def normalize_nop(train, test):
+    return train.map(lambda r: r.label).zip(train.map(lambda r: r.features)), \
+           test.map(lambda r: r.label).zip(test.map(lambda r: r.features))
+
+
+def get_train_test_split_normalized(labeled_rdd, split_n=10, normalize=False):
+
+    train_test = get_train_test_split(labeled_rdd, split_n)
+
+    normalized_ret = []
+    for train, test in train_test:
+        if normalize == 'std':
+            normalized_ret.append(normalize_std(train, test))
+        elif normalize == 'minmax':
+            normalized_ret.append(normalize_minmax(train, test))
+        else:
+            normalized_ret.append(normalize_nop(train, test))
+
+    return normalized_ret
+
+
 def train_classifier_and_measure(ctype, training_data, test_data):
     # TODO: Check it doesn't already exist
 
@@ -180,25 +212,32 @@ def train_classifier_and_measure(ctype, training_data, test_data):
     return output
 
 
-def train_evaluate_kfolds(classifier, data, kfolds):
+def train_evaluate_kfolds(classifier, data, kfolds, norm=None):
     # TODO: Why does this strip away the LabeledPoint and leave a DenseVector !?
     data_df = get_df(data)
 
     count = 0
     results = []
-    for train, test in get_train_test_split(data_df.rdd, kfolds):
+    for train, test in get_train_test_split_normalized(data_df.rdd, kfolds, norm):
         model_predictions = train_classifier_and_measure(classifier,
                                                          # Mapping back to LabeledPoint
-                                                         train.map(lambda r: LabeledPoint(r[1], r[0])),
-                                                         test.map(lambda r: LabeledPoint(r[1], r[0])))
+                                                         train.map(lambda r: LabeledPoint(r[0], r[1])),
+                                                         test.map(lambda r: LabeledPoint(r[0], r[1])))
 
         iteration_results = ResultStats(classifier, model_predictions)
         results.append(iteration_results.to_numpy())
-        logging.info("[%s][%s][F%d] [train:%d, test:%d] %s", feature_nm, classifier, count, train.count(), test.count(),
+
+        if norm:
+            model_name = '{}-{}'.format(classifier, norm)
+        else:
+            model_name = classifier
+
+        logging.info("[%s][%s][F%d] [train:%d, test:%d] %s", feature_nm, model_name, count, train.count(), test.count(),
                      iteration_results)
         count += 1
 
     logging.info("[%s][%s][K%d] %s", feature_nm, classifier, kfolds, ResultStats.print_numpy(np.average(results, axis=0)))
+
 
 if __name__ == '__main__':
 
@@ -216,6 +255,7 @@ if __name__ == '__main__':
         data = mib.get_lps_for_feature(feature_nm)
 
         for classifier in ['svm', 'rf']:
-            train_evaluate_kfolds(classifier, data, 5)
+            for normalizer in [None, 'std']:
+                train_evaluate_kfolds(classifier, data, 5, normalizer)
 
 
