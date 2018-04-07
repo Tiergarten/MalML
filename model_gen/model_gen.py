@@ -187,6 +187,14 @@ def get_train_test_split_normalized(labeled_rdd, split_n=10, normalize=False):
     return normalized_ret
 
 
+def save_model(model):
+    model_uuid = uuid.uuid4().hex
+    model_path = os.path.join(config.MODELS_DIR, 'raw', model_uuid, 'model_0')
+    create_dirs_if_not_exist(model_path)
+    model.save(SparkContext.getOrCreate(), model_path)
+    logging.info('wrote {}'.format(model_path))
+
+
 def train_classifier_and_measure(ctype, training_data, test_data):
     # TODO: Check it doesn't already exist
 
@@ -196,12 +204,7 @@ def train_classifier_and_measure(ctype, training_data, test_data):
         model = DecisionTree.trainClassifier(training_data, 2, categoricalFeaturesInfo={}, impurity='gini', maxDepth=5,
                                              maxBins=32)
 
-    model_uuid = uuid.uuid4().hex
-    model_path = os.path.join(config.MODELS_DIR, 'raw', model_uuid, 'model_0')
-
-    create_dirs_if_not_exist(model_path)
-    model.save(SparkContext.getOrCreate(), model_path)
-    logging.info('wrote {}'.format(model_path))
+    save_model(model)
 
     # TODO: Write metadata: (train)sampleset, normalization, hyper parameters
 
@@ -256,6 +259,6 @@ if __name__ == '__main__':
 
         for classifier in ['svm', 'rf']:
             for normalizer in [None, 'std']:
-                train_evaluate_kfolds(classifier, data, 5, normalizer)
+                train_evaluate_kfolds(classifier, data, 3, normalizer)
 
 
