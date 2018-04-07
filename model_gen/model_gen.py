@@ -89,20 +89,15 @@ class ModelInputBuilder:
 
         return ret
 
-    def balance_datasets(self, a, b):
-        return a, b # TODO: Fix me
-        if len(a.keys()) > len(b.keys()):
-            return a[0:len(b)], b
-        else:
-            return a, b[0:len(a)]
-
     
-def get_sample_set_from_disk(balanced=True):
+def get_sample_set_from_disk(balanced=True, elastic_push=False):
     malware = []
     benign = []
 
     total_features = get_feature_files()
+    logging.info('total feature files: {}'.format(len(total_features)))
 
+    elastic_wrote = 0
     for f in total_features:
         with open(f, 'r') as fd:
             md = json.load(fd)
@@ -110,22 +105,33 @@ def get_sample_set_from_disk(balanced=True):
         if len(md['feature_sets']) == 0:
             continue
 
+        if elastic_push:
+            _id = '{}-{}-{}'.format(md['sample_id'], md['uuid'], md['run_id'])
+            get_elastic().index(index=config.ES_CONF_FEATURES[0], doc_type=config.ES_CONF_FEATURES[1],
+                       body=json.dumps(md), id=_id)
+            elastic_wrote += 1
+
         ds = DetonationSample(md['sample_id'])
-        label = SampleLabelPredictor(ds).get_label()
+        label = SampleLabelPredictor(ds).get_explicit_label()
 
         if label == SampleLabelPredictor.MALWARE:
             malware.append(ds.sample)
-        else:
+        elif label == SampleLabelPredictor.BENIGN:
             benign.append(ds.sample)
+        else:
+            logging.warn('unknown label: {}'.format(label))
 
+    logging.info('benign: {}, malware: {}, total: {}'.format(len(benign), len(malware),
+                                                             len(benign)+len(malware)))
     if balanced:
         if len(malware) > len(benign):
             malware = malware[0:len(benign)]
         elif len(benign) > len(malware):
             benign = benign[0:len(malware)]
 
-    logging.info('feature families: total: {}, good: {}, benign: {}, malware: {} (balanced: {})'
-                 .format(len(total_features), len(malware)+len(benign), len(benign), len(malware), balanced))
+        logging.info('balanced: benign: {}, malware: {}'.format(len(benign), len(malware)))
+
+    logging.info('wrote to elastic: {}'.format(elastic_wrote))
 
     return SampleSet('all-{}'.format(datetime.now()), benign, malware)
 
@@ -199,7 +205,7 @@ if __name__ == '__main__':
     setup_logging('model_gen.log')
 
     # TODO: This gets _ALL_ samples, we need to be more selective
-    all_samples = get_sample_set_from_disk(balanced=True)
+    all_samples = get_sample_set_from_disk(balanced=True, elastic_push=False)
 
     mib = ModelInputBuilder(all_samples)
     mib.load_samples()

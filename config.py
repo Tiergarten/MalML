@@ -27,6 +27,7 @@ MODELS_DIR = os.path.join(DATA_DIR, 'models')
 
 ES_CONF_SAMPLES = ('malml-sample', 'metadata')
 ES_CONF_UPLOADS = ('malml-upload', 'metadata')
+ES_CONF_FEATURES = ('malml-features', 'metadata')
 
 VM_HEARTBEAT_TIMEOUT_MINS = 5
 

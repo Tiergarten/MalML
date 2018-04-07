@@ -70,6 +70,24 @@ class SampleSearch:
         return ret.execute()
 
 
+class FeatureSearch:
+    def __init__(self, sample=None):
+        self.sample = sample
+
+    @staticmethod
+    def s():
+        return Search(using=get_elastic(), index=config.ES_CONF_FEATURES[0], doc_type=config.ES_CONF_FEATURES[1])
+
+    def search(self):
+        ret = FeatureSearch.s()
+        if self.sample is not None:
+            ret = ret.filter('match', sample_id=self.sample)
+
+        return ret.execute()
+
+
+
+
 class ResultStats:
     def __init__(self, label, results):
         self.results = results
@@ -90,21 +108,27 @@ class ResultStats:
 
     def get_total_measures(self): return self.tp + self.tn + self.fp + self.fn
 
+    def div(self, numerator, denominator):
+
+        if denominator == 0:
+            return 0
+
+        return float(numerator) / denominator
+
     def get_accuracy(self):
-        return float(self.tp + self.tn) / self.get_total_measures() if self.tp + self.tn > 0 else 0
+        return self.div(self.tp + self.fn, self.get_total_measures())
 
     def get_precision(self):
-        return float(self.tp) / (self.tp + self.tn) if self.tp > 0 else 0
+        return self.div(self.tp, self.tp + self.fp)
 
     def get_recall(self):
-        return float(self.tp) / self.get_total_measures() if self.tp > 0 else 0
+        return self.div(self.tp, self.tp + self.fn)
 
     def get_specificity(self):
-        return float(self.tn) / self.get_total_measures() if self.tn > 0 else 0
+        return self.div(self.tn, self.tn+self.fp)
 
     def get_f1_score(self):
-        return 2 * float(self.get_recall() + self.get_precision()) / self.get_recall() + self.get_precision() \
-            if self.get_recall() + self.get_precision() > 0 else 0
+        return 2 * self.div(self.get_recall() * self.get_precision(), self.get_recall() + self.get_precision())
 
     def get_area_under_roc(self):
         return BinaryClassificationMetrics(get_df(self.results).rdd).areaUnderROC
@@ -197,7 +221,12 @@ class SampleLabelPredictor:
 
     def get_explicit_label(self):
         if 'label' in self.sample_json:
-            return self.sample_json['label']
+            if self.sample_json['label'] == 'malware':
+                return SampleLabelPredictor.MALWARE
+            elif self.sample_json['label'] == 'benign':
+                return SampleLabelPredictor.BENIGN
+            else:
+                raise Exception('unknown Label!)')
         else:
             return None
 

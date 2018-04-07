@@ -290,8 +290,3 @@ class TimeoutExec:
         except:
             pass
         logging.warn('killed long running script: {}'.format(pid))
-
-
-if __name__ == '__main__':
-    push_upload_stats_elastic()
-
