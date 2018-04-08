@@ -12,235 +12,28 @@ import numpy as np
 from datetime import datetime
 import uuid
 from pyspark.mllib.feature import StandardScaler
+from model import *
+from input import *
 
 FEATURE_FAM = 'ext-mem-rw-dump'
 
 
-def get_labelled_sample_set(_feature_fam, _label, count, exclude=[]):
-    ret = []
-    labelled_samples = SampleSearch(label=_label).search()
-
-    for _sample in labelled_samples:
-        for result in UploadSearch(extractor_pack='pack-1', sample=_sample).search():
-            ret.append(result)
-
-    if len(ret) >= count:
-        return random.sample(ret, count)
-    else:
-        return []
-
-
-def get_feature_files():
-    return [os.path.join(config.FEATURES_DIR, f, '0', 'ext-mem-rw-dump-0.0.1.json')
-            for f in os.listdir(config.FEATURES_DIR) if not f.startswith('.')]
-
-
-class ModelInputBuilder:
-    def __init__(self, sample_set):
-        self.sample_set = sample_set
-
-        self.agg_lps = []
-
-    def load_samples(self):
-        self.agg_lps = self.get_features_lps(self.sample_set.get('benign'), SampleLabelPredictor.BENIGN)
-        self.agg_lps.update(self.get_features_lps(self.sample_set.get('malware'), SampleLabelPredictor.MALWARE))
-
-
-    # TODO: Not all samples are going to have _all_ feature sets (Size constraints etc)
-    def get_features(self):
-        features = []
-
-        for sample in self.agg_lps:
-            for feature_set_n, lps in self.agg_lps[sample]:
-                if feature_set_n not in features:
-                    features.append(feature_set_n)
-
-        return features
-
-    def get_lps_for_feature(self, feature_name):
-        ret = []
-        for sample in self.agg_lps:
-            for feature_set_n, lps in self.agg_lps[sample]:
-                if feature_set_n == feature_name:
-                    ret.append(lps)
-
-        return ret
-
-    def get_feature_labeled_points(self, feature_json, label):
-        ret = []
-
-        for feature_set in feature_json['feature_sets']:
-            feature_data = feature_json['feature_sets'][feature_set]['feature_data']
-            ret.append((feature_set, LabeledPoint(label, [float(f) for f in feature_data])))
-
-        return ret
-
-    def get_feature_json(self, sample):
-        with open(os.path.join(config.FEATURES_DIR, sample, str(0), 'ext-mem-rw-dump-0.0.1.json'), 'r') as fd:
-            return json.load(fd)
-
-    def get_features_lps(self, samples, label):
-        ret = {}
-        for s in samples:
-            j = self.get_feature_json(s)
-
-            features = self.get_feature_labeled_points(j, label)
-            if len(features) > 0:
-                ret[s] = features
-
-        return ret
-
-    
-def get_sample_set_from_disk(balanced=True, elastic_push=False):
-    malware = []
-    benign = []
-
-    total_features = get_feature_files()
-    logging.info('total feature files: {}'.format(len(total_features)))
-
-    elastic_wrote = 0
-    for f in total_features:
-        with open(f, 'r') as fd:
-            md = json.load(fd)
-
-        if len(md['feature_sets']) == 0:
-            continue
-
-        if elastic_push:
-            _id = '{}-{}-{}'.format(md['sample_id'], md['uuid'], md['run_id'])
-            get_elastic().index(index=config.ES_CONF_FEATURES[0], doc_type=config.ES_CONF_FEATURES[1],
-                       body=json.dumps(md), id=_id)
-            elastic_wrote += 1
-
-        ds = DetonationSample(md['sample_id'])
-        label = SampleLabelPredictor(ds).get_explicit_label()
-
-        if label == SampleLabelPredictor.MALWARE:
-            malware.append(ds.sample)
-        elif label == SampleLabelPredictor.BENIGN:
-            benign.append(ds.sample)
-        else:
-            logging.warn('unknown label: {}'.format(label))
-
-    logging.info('benign: {}, malware: {}, total: {}'.format(len(benign), len(malware),
-                                                             len(benign)+len(malware)))
-    if balanced:
-        if len(malware) > len(benign):
-            malware = malware[0:len(benign)]
-        elif len(benign) > len(malware):
-            benign = benign[0:len(malware)]
-
-        logging.info('balanced: benign: {}, malware: {}'.format(len(benign), len(malware)))
-
-    logging.info('wrote to elastic: {}'.format(elastic_wrote))
-
-    return SampleSet('all-{}'.format(datetime.now()), benign, malware)
-
-
-# TODO: Review this
-def get_train_test_split(labelled_rdd, split_n=10):
-    ret = []
-    splits = labelled_rdd.randomSplit([float(1) / split_n] * split_n, seed=int(time.time()))
-    for i in range(0, split_n):
-        test = splits[i]
-
-        train_list = list(splits)
-        train_list.remove(test)
-
-        train_rdd = train_list[0]
-        for train_idx in range(1, len(train_list)):
-            train_rdd = train_rdd.union(train_list[train_idx])
-
-        ret.append((train_rdd, test))
-
-    return ret
-
-
-def normalize_std(train, test):
-    scaler = StandardScaler().fit(train.map(lambda r: r.features))
-
-    return train.map(lambda r: r.label).zip(scaler.transform(train.map(lambda r: r.features))), \
-           test.map(lambda r: r.label).zip(scaler.transform(test.map(lambda r: r.features)))
-
-def normalize_minmax(train, test):
-    pass
-
-
-def normalize_nop(train, test):
-    return train.map(lambda r: r.label).zip(train.map(lambda r: r.features)), \
-           test.map(lambda r: r.label).zip(test.map(lambda r: r.features))
-
-
-def get_train_test_split_normalized(labeled_rdd, split_n=10, normalize=False):
-
-    train_test = get_train_test_split(labeled_rdd, split_n)
-
-    normalized_ret = []
-    for train, test in train_test:
-        if normalize == 'std':
-            normalized_ret.append(normalize_std(train, test))
-        elif normalize == 'minmax':
-            normalized_ret.append(normalize_minmax(train, test))
-        else:
-            normalized_ret.append(normalize_nop(train, test))
-
-    return normalized_ret
-
-
-def save_model(model):
-    model_uuid = uuid.uuid4().hex
-    model_path = os.path.join(config.MODELS_DIR, 'raw', model_uuid, 'model_0')
-    create_dirs_if_not_exist(model_path)
-    model.save(SparkContext.getOrCreate(), model_path)
-    logging.info('wrote {}'.format(model_path))
-
-
-def train_classifier_and_measure(ctype, training_data, test_data):
-    # TODO: Check it doesn't already exist
-
-    if ctype == "svm":
-        model = SVMWithSGD.train(training_data, iterations=100)
-    elif ctype == "rf":
-        model = DecisionTree.trainClassifier(training_data, 2, categoricalFeaturesInfo={}, impurity='gini', maxDepth=5,
-                                             maxBins=32)
-
-    save_model(model)
-
-    # TODO: Write metadata: (train)sampleset, normalization, hyper parameters
-
-    output = []
-    for lp in test_data.collect():
-        output.append((lp.label, float(model.predict(lp.features))))
-
-    return output
-
-
-def train_evaluate_kfolds(classifier, data, kfolds, norm=None):
+def train_evaluate_kfolds(_classifier, data, kfolds, _norm=None):
     # TODO: Why does this strip away the LabeledPoint and leave a DenseVector !?
-    data_df = get_df(data)
+    data_rdd = get_df(data).rdd
 
-    count = 0
-    results = []
-    for train, test in get_train_test_split_normalized(data_df.rdd, kfolds, norm):
-        model_predictions = train_classifier_and_measure(classifier,
-                                                         # Mapping back to LabeledPoint
-                                                         train.map(lambda r: LabeledPoint(r[0], r[1])),
-                                                         test.map(lambda r: LabeledPoint(r[0], r[1])))
+    if _classifier == 'svm':
+        classifier = SVMClassifier()
+    elif _classifier == 'rf':
+        classifier = RFClassifier()
 
-        iteration_results = ResultStats(classifier, model_predictions)
-        results.append(iteration_results.to_numpy())
+    if _norm == 'std':
+        norm = StandardScalerNormalizer()
+    else:
+        norm = None
 
-        if norm:
-            model_name = '{}-{}'.format(classifier, norm)
-        else:
-            model_name = classifier
-
-        logging.info("[%s][%s][F%d] [train:%d, test:%d] %s", feature_nm, model_name, count, train.count(), test.count(),
-                     iteration_results)
-        count += 1
-
-    logging.info("[%s][%s][K%d] %s", feature_nm, classifier, kfolds, ResultStats.print_numpy(np.average(results, axis=0)))
-
+    eval = MalMlFeatureEvaluator(data_rdd, classifier, norm)
+    return eval.eval()
 
 if __name__ == '__main__':
 
@@ -259,6 +52,5 @@ if __name__ == '__main__':
 
         for classifier in ['svm', 'rf']:
             for normalizer in [None, 'std']:
-                train_evaluate_kfolds(classifier, data, 3, normalizer)
-
-
+                logging.info('{}/{}/{} - {}'.format(feature_nm, classifier, normalizer,
+                                            train_evaluate_kfolds(classifier, data, 3, normalizer)))

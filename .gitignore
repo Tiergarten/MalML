@@ -107,3 +107,6 @@ data/features/*
 extractor-packs/*
 uuid.txt
 data/logs/*
+data/models/*
+stash/*
+secrets.py
