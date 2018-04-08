@@ -61,7 +61,7 @@ if __name__ == '__main__':
     debug_samples(bad, 'ERR', total)
     debug_samples(warn, 'WARN', total)
 
-
+    print 'breakdown by >0 feature sets:'
     for source in samples_by_source_uniq(good):
         cnt = 0
         for _sample in samples_by_source_uniq(good)[source]:
@@ -71,6 +71,17 @@ if __name__ == '__main__':
 
         print source, cnt
 
+    print 'theZoo breakdown'
+    for _sample in samples_by_source_uniq(bad)['theZoo']:
+        print 'theZoo BAD: {}'.format(_sample)
+
+    for _sample in samples_by_source_uniq(good)['theZoo']:
+        print 'theZoo GOOD: {}'.format(_sample)
+
+    for _sample in samples_by_source_uniq(good)['theZoo']:
+        result = FeatureSearch(sample=_sample).search()
+        if len(result) > 0 and len(list(result.hits[0].feature_sets)) > 0:
+            print 'theZoo FEATURES: {}'.format(_sample)
 
     if False:
         for upload in good:

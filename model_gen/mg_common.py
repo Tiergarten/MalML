@@ -86,8 +86,6 @@ class FeatureSearch:
         return ret.execute()
 
 
-
-
 class ResultStats:
     def __init__(self, label, results):
         self.results = results
@@ -109,7 +107,6 @@ class ResultStats:
     def get_total_measures(self): return self.tp + self.tn + self.fp + self.fn
 
     def div(self, numerator, denominator):
-
         if denominator == 0:
             return 0
 
@@ -147,6 +144,10 @@ class ResultStats:
         return "[%s][TP:%d TN:%d FP:%d FN:%d] [Acc: %f] [Prec: %f] [Recall: %f] [Specif: %f] [F1: %f] [AuROC:%f]" % (
         self.label, self.tp, self.tn, self.fp, self.fn, self.get_accuracy(), self.get_precision(), self.get_recall(),
         self.get_specificity(), self.get_f1_score(), self.get_area_under_roc())
+
+    def to_json(self):
+        return json.dumps({"accuracy": self.get_accuracy(), "precision": self.get_precision(), "recall": self.get_recall(),
+                           "specificity": self.get_specificity(), "f1_score": self.get_f1_score(), "AuROC": self.get_area_under_roc()})
 
 
 class SampleSet:

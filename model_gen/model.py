@@ -41,14 +41,21 @@ class MalMlModel:
     def load_from_disk(self):
         pass
 
+    def persist_model(self, model, fn):
+        common.create_dirs_if_not_exist(fn)
+        model.save(SparkContext.getOrCreate(), fn)
+        logging.info('wrote {}'.format(fn))
+
     def save_to_disk(self):
         model_uuid = uuid.uuid4().hex
-        model_path = os.path.join(config.MODELS_DIR, 'raw', model_uuid, 'model_0')
+        model_dir = os.path.join(config.MODELS_DIR, 'raw', model_uuid)
 
-        common.create_dirs_if_not_exist(model_path)
-        self.model.save(SparkContext.getOrCreate(), model_path)
-
-        logging.info('wrote {}'.format(model_path))
+        # TODO: we're going to need to write out json saying it was std scaled + the train data...
+        """
+        if self.normalizer is not None:
+            self.persist_model(self.normalizer, os.path.join(model_dir, 'norm_0'))
+"""
+        self.persist_model(self.model, os.path.join(model_dir, 'model_0'))
 
     def build(self):
         train_lp = self.training_data.map(lambda r: LabeledPoint(r[1], r[0]))
@@ -113,6 +120,7 @@ class MalMlFeatureEvaluator:
         for train, test in train_test:
             model = MalMlModel(train, self.classifier, self.normalizer)
             model.build()
+            model.save_to_disk()
 
             self.models.append(model)
 
