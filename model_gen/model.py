@@ -91,6 +91,7 @@ class StandardScalerNormalizer:
         self.normalizer = StandardScaler().fit(train_features)
 
         # TODO: This can't be efficient...
+        #return train_data.map(lambda lp: lp.label).zip(self.norm(train_features)).map(lambda r: LabeledPoint(r[0], r[1]))
         labels = train_data.map(lambda lp: lp.label).collect()
         features = self.norm(train_features).collect()
         return get_df(zip(labels, features)).rdd.map(lambda r: LabeledPoint(r[0], r[1]))

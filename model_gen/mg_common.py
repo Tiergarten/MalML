@@ -86,8 +86,6 @@ class FeatureSearch:
         return ret.execute()
 
 
-
-
 class ResultStats:
     def __init__(self, label, results):
         self.results = results
@@ -131,7 +129,8 @@ class ResultStats:
         return 2 * self.div(self.get_recall() * self.get_precision(), self.get_recall() + self.get_precision())
 
     def get_area_under_roc(self):
-        return BinaryClassificationMetrics(get_df(self.results).rdd).areaUnderROC
+        # we store (label, score) - this expects (score, label)
+        return BinaryClassificationMetrics(get_df([(x[1], x[0]) for x in self.results]).rdd).areaUnderROC
 
     def to_numpy(self):
         return np.array(
