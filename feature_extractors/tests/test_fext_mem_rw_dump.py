@@ -1,5 +1,7 @@
 import unittest
-from fext_common import *
+from feature_extractors.fext_common import *
+from feature_extractors.fext_mem_rw_dump import FextMemRwDump
+
 
 class TestChunkCreation(unittest.TestCase):
     sample_file = """#
@@ -19,10 +21,10 @@ class TestChunkCreation(unittest.TestCase):
     def test_sample_output_chunks(self):
         test_data = pp_pin_output(self.sample_file.split('\n'))
 
-        df = get_df_from_file(test_data)
+        df = FextMemRwDump.get_df_from_lines(test_data)
         self.assertEqual(len(df), 9)
 
-        chunk_mem_ref_deltas = get_chunk_mem_deltas(df)
+        chunk_mem_ref_deltas = FextMemRwDump.get_chunk_mem_deltas(df)
         print chunk_mem_ref_deltas
 
         self.assertEqual(len(chunk_mem_ref_deltas), 1)
@@ -35,10 +37,10 @@ class TestChunkCreation(unittest.TestCase):
         sample_data *= data_sz
         test_data = pp_pin_output(sample_data.split('\n'))
 
-        df = get_df_from_file(test_data)
+        df = FextMemRwDump.get_df_from_lines(test_data)
         self.assertEqual(len(df), data_sz*2)
 
-        chunk_mem_ref_deltas = get_chunk_mem_deltas(df, 10000, MemOffsetMode.DEFAULT)
+        chunk_mem_ref_deltas = FextMemRwDump.get_chunk_mem_deltas(df, 10000, FextMemRwDump.MemOffsetMode.DEFAULT)
         self.assertEqual([5000, 5000, 5000, 5000], chunk_mem_ref_deltas)
 
     def test_read_write_segregation(self):
@@ -46,11 +48,11 @@ class TestChunkCreation(unittest.TestCase):
                       "0x00007ffd37cd1493: R 0x000000361957ec41  1                0x1\n"
 
         test_data = pp_pin_output(sample_data.split('\n'))
-        df = get_df_from_file(test_data, 'r')
+        df = FextMemRwDump.get_df_from_lines(test_data, 'r')
         self.assertEqual(len(df), 1)
 
-        df = get_df_from_file(test_data, 'w')
+        df = FextMemRwDump.get_df_from_lines(test_data, 'w')
         self.assertEqual(len(df), 1)
 
-        df = get_df_from_file(test_data, 'rw')
+        df = FextMemRwDump.get_df_from_lines(test_data, 'rw')
         self.assertEqual(len(df), 2)

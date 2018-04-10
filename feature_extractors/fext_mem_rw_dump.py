@@ -47,7 +47,7 @@ class FextMemRwDump:
         return df
 
     @staticmethod
-    def get_df_from_file(lines, type='rw'):
+    def get_df_from_lines(lines, type='rw'):
         stats = []
         for line in lines:
             p = FextMemRwDump.parse_line(line, type)
@@ -172,7 +172,7 @@ class FextMemRwDump:
             return
 
         for access_type in ['R', 'W', 'RW']:
-            df = FextMemRwDump.get_df_from_file(from_file, access_type)
+            df = FextMemRwDump.get_df_from_lines(from_file, access_type)
 
             for instr_chunk_sz in [1000, 2000, 5000]:
                 for feature_set in FextMemRwDump.MemOffsetMode:
