@@ -45,12 +45,20 @@ if __name__ == '__main__':
     mib = ModelInputBuilder(all_samples)
     mib.load_samples()
 
-    # TODO: Can we tag models with sample sets, so if we re-load the same sample set we don't need to re-train?
+    csv = open(os.path.join(config.MODELS_DIR, 'models.csv'), 'w')
+    csv.write(ResultStats.csv_header()+"\n")
 
+    # TODO: Can we tag models with sample sets, so if we re-load the same sample set we don't need to re-train?
     for feature_nm in mib.get_features():
         data = mib.get_lps_for_feature(feature_nm)
 
         for classifier in ['svm', 'rf']:
             for normalizer in [None, 'std']:
-                logging.info('{}/{}/{} - {}'.format(feature_nm, classifier, normalizer,
-                                            train_evaluate_kfolds(classifier, data, 3, normalizer)))
+                feature_desc = '{}/{}/{}'.format(feature_nm, classifier, normalizer)
+                kfolds_result = train_evaluate_kfolds(classifier, data, 3, normalizer)
+
+                logging.info('{} - {}'.format(feature_desc, ResultStats.print_numpy(kfolds_result)))
+                csv.write(ResultStats.csv_numpy(feature_desc, kfolds_result)+"\n")
+                csv.flush()
+
+    csv.close()

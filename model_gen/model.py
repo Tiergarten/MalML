@@ -133,4 +133,4 @@ class MalMlFeatureEvaluator:
             logging.info(results)
             self.results.append(results.to_numpy())
 
-        return ResultStats.print_numpy(np.average(self.results, axis=0))
+        return np.average(self.results, axis=0)

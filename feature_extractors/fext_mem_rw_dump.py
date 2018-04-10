@@ -73,14 +73,17 @@ class FextMemRwDump:
     # TODO: Should create lots of different versions of this to compare accuracy...
     @staticmethod
     def get_chunks(df, chunk_sz_instr, chunk_mode=ChunkMode.DEFAULT):
-        if chunk_mode == FextMemRwDump.ChunkMode.SEQUENTIAL_BY_OCCURRENCE:
-            return FextMemRwDump.get_chunks_seq_by_occurrence(df, chunk_sz_instr)
-
-    @staticmethod
-    def get_chunks_seq_by_occurrence(df, chunk_sz_instr):
 
         if len(df) < chunk_sz_instr:
             return [df]
+
+        if chunk_mode == FextMemRwDump.ChunkMode.SEQUENTIAL_BY_OCCURRENCE:
+            return FextMemRwDump.get_chunks_seq_by_occurrence(df, chunk_sz_instr)
+        elif chunk_mode == FextMemRwDump.ChunkMode.BY_SOURCE_ADDR:
+            return FextMemRwDump.get_chunks_seq_by_src_addr(df, chunk_sz_instr)
+
+    @staticmethod
+    def get_chunks_seq_by_occurrence(df, chunk_sz_instr):
 
         n_chunks = len(df) / chunk_sz_instr
 
@@ -92,6 +95,11 @@ class FextMemRwDump:
                 ret.append(chunk_df)
 
         return ret
+
+    @staticmethod
+    def get_chunks_seq_by_src_addr(df, chunk_sz_instr):
+        pass
+
 
     class MemOffsetMode(Enum):
         DEFAULT = 1

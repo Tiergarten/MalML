@@ -141,6 +141,15 @@ class ResultStats:
         return "[Accuracy: %f, Precision: %f, Recall: %f, Specificity: %f, F1: %f AuROC: %f]" % (
         np[0], np[1], np[2], np[3], np[4], np[5])
 
+
+    @staticmethod
+    def csv_header():
+        return "feature,accuracy,precision,recall,specificity,f1-score,AuROC"
+
+    @staticmethod
+    def csv_numpy(feature_nm, np):
+        return "{},{},{},{},{},{},{}".format(feature_nm, np[0], np[1], np[2], np[3], np[4], np[5])
+
     def __str__(self):
         return "[%s][TP:%d TN:%d FP:%d FN:%d] [Acc: %f] [Prec: %f] [Recall: %f] [Specif: %f] [F1: %f] [AuROC:%f]" % (
         self.label, self.tp, self.tn, self.fp, self.fn, self.get_accuracy(), self.get_precision(), self.get_recall(),
