@@ -7,6 +7,7 @@ import traceback
 import logging
 import objgraph
 import gc
+import getopt
 
 from feature_extractors import fext_common
 
@@ -21,7 +22,7 @@ def get_feature_extractor_for_pack(module, clazz):
     return getattr(importlib.import_module('feature_extractors.{}'.format(module)), clazz)
 
 
-def extract_features(du, run_id):
+def extract_features(du, run_id, force=False):
     metadata = DetonationMetadata(du)
 
     for (module, clazz) in get_fexts_for_pack(metadata.get_extractor_pack()):
@@ -32,7 +33,7 @@ def extract_features(du, run_id):
                                                        feature_ext_class.__version__,
                                                        metadata)
 
-        if feature_writer.already_exists():
+        if feature_writer.already_exists() and not force:
             logging.info('feature extract for {} already exists, skipping...'.format(du.sample))
             continue
 
@@ -90,16 +91,9 @@ class FeatureExtractorWorker(threading.Thread):
                 self.logger.error(traceback.format_exc())
 
 
-if __name__ == '__main__':
-
-    if len(sys.argv) > 2 and sys.argv[2] == 'clean':
-        ReliableQueue(config.REDIS_UPLOAD_QUEUE_NAME).clear_processing_queues()
-        ReliableQueue(config.REDIS_UPLOAD_QUEUE_NAME).clear_queue()
-
-    setup_logging('feature_extractor.log')
-    instance_name = sys.argv[1] if len(sys.argv) > 1 else 'default'
+def fext_daemon(worker_name, worker_count):
     workers = [FeatureExtractorWorker(config.REDIS_UPLOAD_QUEUE_NAME,
-                                      '{}-{}'.format(instance_name, w)) for w in range(0, 1)]
+                                      '{}-{}'.format(worker_name, w)) for w in range(0, worker_count)]
 
     for w in workers:
         w.start()
@@ -111,3 +105,36 @@ if __name__ == '__main__':
         logging.getLogger('main').info('Cleaning up threads...')
         for w in workers:
             w.running = False
+
+
+if __name__ == '__main__':
+    init_queue = False
+    daemon = False
+    force = False
+    worker_name = 'default'
+    worker_count = 1
+    oneshot_sample = None
+
+    setup_logging('feature_extractor.log')
+
+    opts, ret = getopt.getopt(sys.argv[1:], 'dco:f', ['daemon', 'clean', 'one-shot=', 'force'])
+    for opt, arg in opts:
+        if opt in ('-d', '--daemon'):
+            daemon = True
+        elif opt in ('-c', '--clean'):
+            init_queue = True
+        elif opt in ('-o', '--one-shot'):
+            oneshot_sample = arg
+        elif opt in ('-f', '--force'):
+            force = True
+
+    if init_queue:
+        ReliableQueue(config.REDIS_UPLOAD_QUEUE_NAME).clear_processing_queues()
+        ReliableQueue(config.REDIS_UPLOAD_QUEUE_NAME).clear_queue()
+
+    if daemon:
+        fext_daemon(worker_name, worker_count)
+    elif oneshot_sample is not None:
+        sample, uuid = oneshot_sample.split(':')
+        du = DetonationUpload(config.UPLOADS_DIR, sample, uuid, [0])
+        extract_features(du, 0, force)
