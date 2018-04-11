@@ -12,15 +12,13 @@ from pyspark.mllib.evaluation import BinaryClassificationMetrics
 
 import config
 
+
 def get_elastic():
     return Elasticsearch()
 
+
 def get_df(data):
     return SparkSession.builder.getOrCreate().createDataFrame(data)
-
-
-def get_sc():
-    return SparkContext("local", "static-poc")
 
 
 class UploadSearch:

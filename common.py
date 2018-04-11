@@ -14,6 +14,7 @@ from config import LOGS_DIR
 import subprocess
 import psutil
 
+
 class DetonationSample:
     def __init__(self, sample):
         self.sample = sample
@@ -120,12 +121,14 @@ def get_detonator_uploads(upload_dir):
 
     return ret
 
+
 def enqueue_existing_uploads_for_feature_ext():
     q = ReliableQueue(config.REDIS_UPLOAD_QUEUE_NAME)
     for upload in get_detonator_uploads(config.UPLOADS_DIR):
         if upload.isSuccess():
             print 'sending {}'.format(upload.to_json())
             q.enqueue(upload.to_json())
+
 
 def get_samples(samples_dir):
     return [f for f in os.listdir(samples_dir) if is_sha256_fn(f)]
@@ -171,6 +174,7 @@ def create_dirs_if_not_exist(path):
         os.makedirs(_path)
     except:
         pass
+
 
 def set_run_status(json, status, msg):
     json['status'] = status
