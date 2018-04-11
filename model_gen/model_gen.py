@@ -14,6 +14,7 @@ import uuid
 from pyspark.mllib.feature import StandardScaler
 from model import *
 from input import *
+import datetime
 
 FEATURE_FAM = 'ext-mem-rw-dump'
 
@@ -39,13 +40,17 @@ if __name__ == '__main__':
 
     setup_logging('model_gen.log')
 
-    # TODO: This gets _ALL_ samples, we need to be more selective
-    all_samples = get_sample_set_from_disk(balanced=True, elastic_push=False)
+    # Generate run-id
+    run_id = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-    mib = ModelInputBuilder(all_samples)
+    # TODO: This gets _ALL_ samples, we need to be more selective
+    sample_set = get_sample_set_from_disk(balanced=True, elastic_push=False)
+    sample_set.write(os.path.join(config.MODELS_DIR, '{}_sampleset.json'.format(run_id)))
+
+    mib = ModelInputBuilder(sample_set)
     mib.load_samples()
 
-    csv = open(os.path.join(config.MODELS_DIR, 'models.csv'), 'w')
+    csv = open(os.path.join(config.MODELS_DIR, '{}_models.csv'.format(run_id)), 'w')
     csv.write(ResultStats.csv_header()+"\n")
 
     # TODO: Can we tag models with sample sets, so if we re-load the same sample set we don't need to re-train?

@@ -183,7 +183,6 @@ class SampleSet:
         with open(fn, 'r') as fd:
             self.json_body = json.loads(fd.read())
 
-
     def __str__(self):
         return json.dumps(self.json_body)
 
