@@ -17,6 +17,7 @@ import sys
 
 r = redis.Redis(host=config.REDIS_HOST, port=config.REDIS_PORT)
 
+
 # Client flask, imports this and pushes vm instruction messages onto redis
 class VmWatchDog:
     def __init__(self, vm_name):
@@ -41,24 +42,12 @@ class VmWatchDog:
         })
 
     def push(self, dict):
-        # Fire heartbeat to avoid race where action already queued
+        # Fire heartbeat to avoid race where action already queued (especially for blocking impl)
         self.heartbeat()
         r.rpush(self.get_queue(), json.dumps(dict))
 
     def heartbeat(self):
         VmHeartbeat().heartbeat(self.vm_name)
-
-    def set_processing(self, sample='', uuid='', run_id=''):
-        VmHeartbeat().set_processing(self.vm_name, sample, uuid, run_id)
-
-    def clear_processing(self):
-        VmHeartbeat().set_processing(self.vm_name)
-
-    # TODO: This shouldn't be triggered from controller...
-    @staticmethod
-    def init():
-        for vm ,snapshot in config.ACTIVE_VMS:
-            VmWatchDog(vm).restore()
 
 
 # Runs in daemon on machine to listen for vm instructions
@@ -106,7 +95,6 @@ class VmWatchdogService(threading.Thread):
             jmsg = json.loads(msg)
 
             vm_name = jmsg['vm_name']
-            VmWatchDog(vm_name).clear_processing()
 
             if threading:
                 self.queues[vm_name].put('restore')
@@ -172,12 +160,8 @@ class VmHeartbeat(threading.Thread):
         r.hset(self.heartbeat_hash_name, vm_name, now)
         self.logger.info('set heartbeat for {} -> {}'.format(vm_name, now))
 
-    def set_processing(self, vm_name='', sample='', uuid='', run_id=''):
-        r.hset(self.curr_processing_hash_name, vm_name, '{}:{}:{}'.format(sample, uuid, run_id))
-        self.logger.info('set {} processing {}'.format(vm_name, sample))
-
-    def get_last_processed(self, vm_name):
-        return r.hget(self.curr_processing_hash_name, vm_name)
+    def get_processing(self, vm_name):
+        return common.SampleQueue().get_processing(vm_name)
 
     def is_timeout_expired(self, vm):
         idle_since = r.hget(self.heartbeat_hash_name, vm)
@@ -188,28 +172,26 @@ class VmHeartbeat(threading.Thread):
         self.logger.info('{} idle for {}s'.format(vm, idle_secs))
         return idle_secs > self.timeout_secs_limit
 
-    def create_bad_sample_metadata_json(self, sample, uuid, run_id):
-        uri = '{}/agent/error/{}/{}/{}'.format(config.EXT_IF, sample, uuid, run_id)
+    def signal_controller_timeout(self, processing_json):
+        uri = '{}/agent/error/{}'.format(config.EXT_IF, processing_json['sample'])
         self.logger.info('calling {}'.format(uri))
         r = requests.post(uri, {'status':'ERR', 'status_msg':'vm watchdog timeout'})
         self.logger.info(r.text)
 
-    def reset(self):
-        for vm, snapshot in config.ACTIVE_VMS:
-            self.set_processing(vm)
-            self.heartbeat(vm)
-            self.logger.info('reset vm heartbeat and processing {}'.format(vm))
+    def cleanup_unprocessed_sample(self, vm):
+        last_processing = self.get_processing(vm)
+        if last_processing is None:
+            return
+
+        self.signal_controller_timeout(last_processing)
+        common.SampleQueue().set_processed(vm)
 
     def _run(self):
         while True:
             for vm, snapshot in config.ACTIVE_VMS:
                 if self.is_timeout_expired(vm):
                     self.logger.info('{} breached timeout limit, restoring...'.format(vm))
-                    last_processing = self.get_last_processed(vm)
-                    if last_processing != '::':
-                        self.create_bad_sample_metadata_json(*last_processing.split(':'))
-                        self.set_processing(vm)
-
+                    self.cleanup_unprocessed_sample(vm)
                     VmWatchDog(vm).restore()
 
             time.sleep(self.poll_tm_secs)
@@ -221,13 +203,18 @@ class VmHeartbeat(threading.Thread):
             except Exception as e:
                 self.logger.error(e)
 
+
 if __name__ == '__main__':
 
-    heartbeat_init = True
+    heartbeat_init = False
+    vms_init = False
+    """
+    Why would I want this?
     opts, excess = getopt.getopt(sys.argv[1:], '', ['dont-init'])
     for opt, arg in opts:
-        if opt in ('--dont-init'):
+        if opt == '--dont-init':
             heartbeat_init = False
+"""
 
     if heartbeat_init:
         for vm, snapshot in config.ACTIVE_VMS:
@@ -237,7 +224,9 @@ if __name__ == '__main__':
 
     # TODO: this should probably know what VmWatchdogService is doing to avoid a race??
     print 'starting heartbeat thread...'
+    # Watches for VM's timing out
     heartbeat_thread = VmHeartbeat().start()
 
     print 'starting cmd listener thread...'
+    # Listens for commands from http-controller
     cmd_listener = VmWatchdogService().start()

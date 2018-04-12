@@ -48,6 +48,11 @@ function isStatus() {
 function manage() {
 	info "${VBOX_PATH}/VBoxManage.exe" "$@"
 	"${VBOX_PATH}/VBoxManage.exe" "$@"
+	retVal=$?
+	echo "RETVAL: ${retVal}"
+	if [[ "${retVal}" -ne "0" ]]; then
+	    echo "WARN: looks like there is a problem with Vm ${3}"
+	fi
 }
 
 function stopVm() {

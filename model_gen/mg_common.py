@@ -2,7 +2,6 @@ from pyspark.sql.session import SparkSession
 from pyspark import SparkContext
 
 from elasticsearch import Elasticsearch
-from elasticsearch_dsl import Search
 
 import json
 
@@ -19,69 +18,6 @@ def get_elastic():
 
 def get_df(data):
     return SparkSession.builder.getOrCreate().createDataFrame(data)
-
-
-class UploadSearch:
-    def __init__(self, extractor_pack=None, feature_family=None, sample=None):
-        self._extractor_pack = extractor_pack
-        self._feature_family = feature_family
-        self._sample = sample
-
-    @staticmethod
-    def s():
-        return Search(using=get_elastic(), index=config.ES_CONF_UPLOADS[0], doc_type=config.ES_CONF_UPLOADS[1])
-
-    def search(self):
-        ret = UploadSearch.s()
-        if self._extractor_pack is not None:
-            ret = ret.filter('match', extractor_pack=self._extractor_pack)
-        if self._feature_family is not None:
-            ret = ret.filter('match', feature_family=self._feature_family)
-        if self._sample is not None:
-            ret = ret.filter('match', sample=self._sample)
-
-        return ret.execute()
-
-
-class SampleSearch:
-    def __init__(self, label=None, arch=None, source=None, sample=None):
-        self._label = label
-        self._arch = arch
-        self._source = source
-        self._sample = sample
-
-    @staticmethod
-    def s():
-        return Search(using=get_elastic(), index=config.ES_CONF_SAMPLES[0], doc_type=config.ES_CONF_SAMPLES[1])
-
-    def search(self):
-        ret = SampleSearch.s()
-        if self._label is not None:
-            ret = ret.filter('match', label=self._label)
-        if self._arch is not None:
-            ret = ret.filter('match', arch=self._arch)
-        if self._source is not None:
-            ret = ret.filter('match', source=self._source)
-        if self._sample is not None:
-            ret = ret.filter('match', sample=self._sample)
-
-        return ret.execute()
-
-
-class FeatureSearch:
-    def __init__(self, sample=None):
-        self.sample = sample
-
-    @staticmethod
-    def s():
-        return Search(using=get_elastic(), index=config.ES_CONF_FEATURES[0], doc_type=config.ES_CONF_FEATURES[1])
-
-    def search(self):
-        ret = FeatureSearch.s()
-        if self.sample is not None:
-            ret = ret.filter('match', sample_id=self.sample)
-
-        return ret.execute()
 
 
 class ResultStats:

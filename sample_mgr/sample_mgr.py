@@ -18,189 +18,101 @@ import shutil
 from common import *
 import collections
 
+import random
+
 __version__ = '0.0.1'
-
-http_headers = {
-        "Accept-Encoding": "gzip, deflate",
-        "User-Agent": "gzip,  My Python requests library example client or username"
-}
-
-
-# FIXME: fugly
-class SampleImporter:
-    def __init__(self, input_sample_dir, master_sample_dir):
-        self.input_sample_dir = input_sample_dir
-        self.master_sample_dir = master_sample_dir
-
-    def get_tgt_sample_metadata_file(self, sample):
-        return os.path.join(config.SAMPLES_DIR, '{}.json'.format(sample))
-
-    def get_samples_without_metadata(self, samples):
-        return filter(lambda s: not os.path.isfile(self.get_tgt_sample_metadata_file(s)), get_samples(samples))
-
-    def get_vti_sample_metadata(self, sha256):
-        params = {'apikey': secrets.VT_API_KEY, 'resource': sha256, 'allinfo': 1}
-        return requests.get('https://www.virustotal.com/vtapi/v2/file/report',
-                            params=params, headers=http_headers).json()
-
-    # TODO: error checking
-    def get_arch(self, binary):
-        cmd = 'file {}'.format(binary)
-        ps = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        return ps.communicate()[0].split(':')[1].rstrip()
-
-    def get_json_metadata(self, sample_nm, source, label):
-        return {
-                'malml-sample-mgr': __version__,
-                'vti': self.get_vti_sample_metadata(sample_nm),
-                'source': source,
-                'label': label,
-                'arch': self.get_arch(os.path.join(self.input_sample_dir, sample_nm))
-            }
-
-    def is_blacklisted(self, jdata):
-        arch = jdata['arch'].lstrip()
-
-        if not arch.startswith('PE32'):
-            return True
-
-        if '(DLL)' in arch:
-            return True
-
-        return False
-
-    def write_sample_metadata(self, sample_nm, source, label, elastic):
-        sample_md_path = self.get_tgt_sample_metadata_file(sample_nm)
-        metadata = self.get_json_metadata(sample_nm, source, label)
-
-        if self.is_blacklisted(metadata):
-            logging.warn('skipping {}, blacklisted ({})'.format(sample_nm, metadata['arch']))
-
-        if not os.path.exists(sample_md_path):
-            with open(sample_md_path, 'w') as fd:
-                fd.write(json.dumps(metadata, indent=4, sort_keys=True))
-            logging.info('wrote {}'.format(sample_md_path))
-        else:
-            print '{} already exists, checking if ours'.format(sample_md_path)
-            with open(sample_md_path, 'r') as fd:
-                metadata = json.loads(fd.read())
-
-            if 'malml-sample-mgr' not in metadata:
-                logging.info('not ours, overwriting...')
-                metadata['existing_metadata'] = metadata
-                with open(sample_md_path, 'r') as fd:
-                    fd.write(json.dumps(metadata, indent=4, sort_keys=True))
-
-        if elastic:
-            try :
-                self.write_sample_metadata_to_elastic(sample_nm, metadata)
-            except Exception as e:
-                logging.warn(e)
-
-
-    @staticmethod
-    def pre_process_json_for_elastic(metadata):
-        ret = metadata
-
-        # elastic doesn't like a list having 2 different types...
-        if 'additional_info' in ret['vti']:
-            if 'sections' in ret['vti']['additional_info']:
-                new_sections = []
-                for s in metadata['vti']['additional_info']['sections']:
-                    new_sections.append([str(c) for c in s])
-                ret['vti']['additional_info']['sections'] = new_sections
-
-            if 'rombioscheck' in ret['vti']['additional_info']:
-                if 'manufacturer_candidates' in ret['vti']['additional_info']['rombioscheck']:
-                    new_candidates = []
-                    for c in ret['vti']['additional_info']['rombioscheck']['manufacturer_candidates']:
-                        new_candidates.append([str(x) for x in c])
-                    ret['vti']['additional_info']['rombioscheck']['manufacturer_candidates'] = new_candidates
-
-        # elastic doesn't cope well with lots of unique field names...
-        SampleImporter.cut(ret, 3, 'REDACTED')
-        return ret
-
-    @staticmethod
-    def cut(dict_, maxdepth, replaced_with=None):
-        """Cuts the dictionary at the specified depth.
-
-        If maxdepth is n, then only n levels of keys are kept.
-        """
-        queue = collections.deque([(dict_, 0)])
-
-        # invariant: every entry in the queue is a dictionary
-        while queue:
-            parent, depth = queue.popleft()
-            for key, child in parent.items():
-                if isinstance(child, dict):
-                    if depth == maxdepth - 1:
-                        parent[key] = replaced_with
-                    else:
-                        queue.append((child, depth + 1))
-
-    def write_sample_metadata_to_elastic(self, sample_nm, _metadata_dict):
-        metadata_dict = SampleImporter.pre_process_json_for_elastic(_metadata_dict)
-        es = get_elastic()
-        es.index(index=config.ES_CONF_SAMPLES[0], doc_type=config.ES_CONF_SAMPLES[1],
-                 body=json.dumps(metadata_dict), id=sample_nm)
-
-        print 'wrote {} -> elastic'.format(sample_nm)
-
-    def sync_master_with_elastic(self):
-        files = [f for f in os.listdir(self.master_sample_dir)
-                 if re.match(r'^[A-Za-z0-9]{64}.json$', f, re.MULTILINE)]
-
-        for f in files:
-            sample_md_path = os.path.join(self.master_sample_dir, f)
-            with open(sample_md_path, 'r') as fd:
-                metadata = json.loads(fd.read())
-                self.write_sample_metadata_to_elastic(f.replace('.json', ''), metadata)
-
-    def copy_input_sample_to_master(self, sample):
-        shutil.copyfile(os.path.join(self.input_sample_dir, sample),
-                        os.path.join(self.master_sample_dir, sample))
-
-    def import_samples(self, sample_src, sample_label, elastic=False):
-        # Rename to sha256
-        for f in os.listdir(self.input_sample_dir):
-            if not is_sha256_fn(f) and not f.endswith('.txt'):
-                sample = os.path.join(self.input_sample_dir, f)
-                target = os.path.join(self.input_sample_dir, sha256_checksum(sample))
-                shutil.move(sample, target)
-                logging.info('renamed {} -> {}'.format(sample, target))
-
-        for s in get_samples(self.input_sample_dir):
-            self.write_sample_metadata(s, sample_src, sample_label, elastic)
-            self.copy_input_sample_to_master(s)
 
 
 class SampleEnqueuer(threading.Thread):
-    def __init__(self, redis_conf, sleep_tm):
-        self.r = redis.Redis(host=redis_conf[0], port=redis_conf[1])
-        self.queue_name = redis_conf[1]
+    def __init__(self, redis_conf, sleep_tm=10):
+        threading.Thread.__init__(self)
+        self.queue = ReliableQueue(config.REDIS_SAMPLE_QUEUE_NAME)
         self.sleep_tm = sleep_tm
+        self.in_flight = self.get_in_flight_es()
+        self.queue_depth_limit = 50
+        self.running = True
 
-    def enqueue_samples(self):
-        to_process = self.get_samples_without_upload(
-            get_samples(config.SAMPLES_DIR), config.UPLOADS_DIR)
+    def get_samples_from_disk(self):
+        return [f for f in os.listdir(config.SAMPLES_DIR) if is_sha256_fn(f)]
 
-        if len(to_process) == 0:
+    def get_samples_to_process(self, count=1):
+        unprocessed = [sample for sample in self.get_samples_from_disk()
+                       if sample not in self.in_flight]
+
+        logging.info('identified {} unprocessed samples'.format(len(unprocessed)))
+
+        # TODO: This needs to see whats already processed (benign/malware) and attempt to keep them balanced!
+        if len(unprocessed) > 0:
+            if len(unprocessed) >= count:
+                return random.sample(unprocessed, count)
+            else:
+                return unprocessed
+        else:
+            return None
+
+    def get_in_flight_es(self):
+        ret = []
+
+        # TODO: I thinkt his is fetching all the data, when all we need is the headers
+        uploads = get_all_es(UploadSearch.s())
+        for u in uploads:
+            # TODO: This isn't looking at uuid/run_id
+            ret.append(u.meta['id'].split('-')[0])
+
+        for sample_q_json in ReliableQueue(config.REDIS_SAMPLE_QUEUE_NAME).queue_items():
+            ret.append(json.loads(sample_q_json)['sample'])
+
+        for vm, snapshot in config.ACTIVE_VMS:
+            ret.append(ReliableQueue(config.REDIS_SAMPLE_QUEUE_NAME, config.REDIS_NODE_PREFIX, vm).
+                       processing_items())
+
+        return ret
+
+    def queue_depth_limit_breached(self):
+        return self.queue.queue_depth() >= self.queue_depth_limit
+
+    def is_priority(self, sample):
+        return 0
+
+    def get_queue_payload(self, sample):
+        return {
+            'sample': sample,
+            'vm': 'win7_sp1_ent-dec_2011',
+            'extractor-pack': 'pack-1',
+            'arch': DetonationSample(sample).get_arch()
+        }
+
+    def enqueue(self, sample):
+        payload = self.get_queue_payload(sample)
+
+        logging.info('enqueueing sample - {}'.format(payload['sample']))
+        self.queue.enqueue(json.dumps(payload), self.is_priority(payload['sample']))
+        self.in_flight.append(payload['sample'])
+
+    def _run(self, cnt):
+        if self.queue_depth_limit_breached():
+            logging.info('Queue depth limit {} breached, sleeping...'.format(self.queue_depth_limit))
             return
 
-        # TODO: Look @ elastic to see what we've already processed...
-        for sample in to_process:
-            for vm in get_active_vms():
-                for pack in get_active_packs(vm):
-                    self.r.lpush(json.dumps({
-                        'sample_name': sample,
-                        'vm': vm,
-                        'pack': pack
-                    }))
+        # Re-sync with ES & Queues
+        if cnt != 0 and cnt % 50 == 0:
+            logging.info('Re-triggering sync with ES and queues')
+            self.in_flight = self.get_in_flight_es()
+
+        to_process = self.get_samples_to_process(self.queue_depth_limit - self.queue.queue_depth())
+        if to_process is not None:
+            for s in to_process:
+                self.enqueue(s)
 
     def run(self):
-        while True:
-            self.enqueue_samples()
+        run_cnt = 0
+        while self.running:
+            try:
+                self._run(run_cnt)
+                run_cnt += 1
+            except Exception as e:
+                logging.exception(e)
+
             time.sleep(self.sleep_tm)
 
     @staticmethod
@@ -211,36 +123,33 @@ class SampleEnqueuer(threading.Thread):
 
 
 if __name__ == '__main__':
-
-    source = ''
-    label = ''
-    input_dir = ''
-    existing_only = False
-
     setup_logging('sample_mgr.log')
 
-    opts, remaining = getopt.getopt(sys.argv[1:], 'qs:l:i:e',
-                                    ['queue-samples', 'source', 'label', 'input-dir', 'existing'])
+    clear_input_queue = False
+    clear_processing_queues = False
 
+    opts, excess = getopt.getopt(sys.argv[1:], 'ip', ['clear-input', 'clear-processing'])
     for opt, arg in opts:
-        if opt in ('-s', '--source'):
-            source = arg
-        if opt in ('-l', '--label'):
-            label = arg
-        if opt in ('-i', '--input-dir'):
-            input_dir = arg
-        if opt in ('-e', '--existing'):
-            existing_only = True
+        if opt in ('-i', '--clear-input'):
+            clear_input_queue = True
+        elif opt in ('-p', '--clear-processing'):
+            clear_processing_queues = True
 
-    if existing_only:
-        si = SampleImporter('', config.SAMPLES_DIR)
-        si.sync_master_with_elastic()
-    else:
-        assert len(source) > 1 and len(input_dir) > 1 and len(label) > 1, \
-            "usage: ./asdf.py -s <source> -i <input_dir> -l <label>"
+    if clear_input_queue:
+        logging.info('Clearing {}'.format(config.REDIS_UPLOAD_QUEUE_NAME))
+        ReliableQueue(config.REDIS_SAMPLE_QUEUE_NAME).clear_queue()
 
-        logging.info('importing samples {} -> {}'.format(input_dir, config.SAMPLES_DIR))
-        logging.info('source: {}, label: {}'.format(source, label))
+    if clear_processing_queues:
+        logging.info('Clearing processing queues for {}'.format(config.REDIS_NODE_PREFIX))
+        ReliableQueue(config.REDIS_SAMPLE_QUEUE_NAME, config.REDIS_NODE_PREFIX)\
+            .clear_processing_queues()
 
-        si = SampleImporter(input_dir, config.SAMPLES_DIR)
-        si.import_samples(source, label, elastic=True)
+    se = SampleEnqueuer((config.REDIS_HOST, config.REDIS_PORT))
+    se.start()
+
+    try:
+        while True:
+            time.sleep(30)
+    except KeyboardInterrupt:
+        logging.info('Signalling SampleEnqueuer to exit')
+        se.running = False
