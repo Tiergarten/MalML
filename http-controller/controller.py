@@ -34,7 +34,7 @@ def get_agent():
 #
 
 
-def update_callback_details(cb_uuid):
+def update_callback_details(cb_uuid, node):
     resp = {}
     if cb_uuid is None:
         cb_uuid = uuid.uuid4().hex
@@ -42,7 +42,7 @@ def update_callback_details(cb_uuid):
     elif cb_uuid in uuid_run_map:
         uuid_run_map[cb_uuid] += 1
     else:
-        app.logger.warn('received uuid we dont know about...')
+        app.logger.warn('received uuid we dont know about from {}'.format(node))
         uuid_run_map[cb_uuid] = 0
 
     resp['run_id'] = uuid_run_map[cb_uuid]
@@ -86,7 +86,7 @@ def callback():
     cb_uuid = get_form_param('uuid')
     node = get_form_param('node')
 
-    cb_uuid, resp = update_callback_details(cb_uuid)
+    cb_uuid, resp = update_callback_details(cb_uuid, node)
     app.logger.info('in callback - uuid: {} node: {}'.format(cb_uuid, node))
 
     if resp['run_id'] == 0 or True:

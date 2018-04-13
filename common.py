@@ -393,6 +393,7 @@ def get_all_es(query):
 class SampleQueue:
     def __init__(self):
         self.processing_qeueues = {}
+        self.logger = logging.getLogger(self.__class__.__name__)
 
     def get_proc_queue(self, node_nm):
         if node_nm not in self.processing_qeueues.keys():
@@ -403,7 +404,7 @@ class SampleQueue:
     def get_sample_to_process(self, node_nm):
         q = self.get_proc_queue(node_nm)
         if q.processing_depth() > 0:
-            logging.error('{} is trying to request new sample, when processing depth > 0'.format(node_nm))
+            self.logger.error('{} is trying to request new sample, when processing depth > 0'.format(node_nm))
             # TODO: What to do here? Push to dead letter queue?
 
         proc_payload = q.dequeue()
@@ -417,7 +418,7 @@ class SampleQueue:
         processing = q.processing_items()
 
         if len(processing) > 1:
-            logging.error('More than one item in SampleQueue {}'.format(q.get_processing_list_nm()))
+            self.logger.error('More than one item in SampleQueue {}'.format(q.get_processing_list_nm()))
 
         if len(processing) > 0:
             return json.loads(processing[0])
@@ -428,15 +429,15 @@ class SampleQueue:
         # There should only be one...
         processing = self.get_processing(vm_name)
         if processing is None:
-            logging.error('Nothing processing in sample queue for {}, {} was set_processed'
+            self.logger.error('Nothing processing in sample queue for {}, {} was set_processed'
                           .format(self.get_proc_queue(vm_name).get_processing_list_nm(), vm_name))
             return
 
         if sample is not None and processing['sample'] != sample:
-            logging.error('Sample requested to commit is not in queue {} / {}'
+            self.logger.error('Sample requested to commit is not in queue {} / {}'
                           .format(sample, self.get_proc_queue(vm_name).get_processing_list_nm()))
         else:
-            logging.info('Commiting {}'.format(processing['sample']))
+            self.logger.info('Commiting {}/{}'.format(vm_name, processing['sample'][0:8]))
             self.get_proc_queue(vm_name).commit(json.dumps(processing))
 
 
