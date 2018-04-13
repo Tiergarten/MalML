@@ -215,7 +215,6 @@ def detonation_upload_to_es(detonation_upload, run_id):
 
     es.index(index=config.ES_CONF_UPLOADS[0], doc_type=config.ES_CONF_UPLOADS[1],
              body=json.dumps(metadata), id=_id)
-    print 'wrote -> elastic {}'.format(_id)
 
 
 def push_upload_stats_elastic(json_dir=config.UPLOADS_DIR):
@@ -411,7 +410,10 @@ class SampleQueue:
         if proc_payload is None:
             return None
 
-        return json.loads(proc_payload)
+        ret = json.loads(proc_payload)
+        self.logger.info('dequeued: {} for {}'.format(ret['sample'], node_nm))
+
+        return ret
 
     def get_processing(self, vm_name):
         q = self.get_proc_queue(vm_name)

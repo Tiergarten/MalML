@@ -125,7 +125,7 @@ def get_md_fn(run_id):
 
 
 def vm_action(vm_name, action):
-    if SampleQueue().get_sample_to_process(vm_name) is None:
+    if ReliableQueue(config.REDIS_SAMPLE_QUEUE_NAME).queue_depth() == 0:
         return
 
     if action == 'restore':

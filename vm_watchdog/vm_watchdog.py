@@ -204,24 +204,7 @@ class VmHeartbeat(threading.Thread):
                 self.logger.error(e)
 
 
-if __name__ == '__main__':
-
-    heartbeat_init = False
-    vms_init = False
-    """
-    Why would I want this?
-    opts, excess = getopt.getopt(sys.argv[1:], '', ['dont-init'])
-    for opt, arg in opts:
-        if opt == '--dont-init':
-            heartbeat_init = False
-"""
-
-    if heartbeat_init:
-        for vm, snapshot in config.ACTIVE_VMS:
-            VmWatchDog(vm).heartbeat()
-
-    common.setup_logging('vm-watchdog.log')
-
+def daemon():
     # TODO: this should probably know what VmWatchdogService is doing to avoid a race??
     print 'starting heartbeat thread...'
     # Watches for VM's timing out
@@ -230,3 +213,28 @@ if __name__ == '__main__':
     print 'starting cmd listener thread...'
     # Listens for commands from http-controller
     cmd_listener = VmWatchdogService().start()
+
+
+if __name__ == '__main__':
+
+    heartbeat_init = False
+    daemon_mode = False
+
+    common.setup_logging('vm-watchdog.log')
+
+    opts, excess = getopt.getopt(sys.argv[1:], 'ds', ['daemon', 'stop-all'])
+    for opt, arg in opts:
+        if opt in ('-d', '--daemon'):
+            daemon = True
+
+    # TODO: When would this be required?
+    if heartbeat_init:
+        for vm, snapshot in config.ACTIVE_VMS:
+            VmWatchDog(vm).heartbeat()
+
+    if daemon_mode:
+        daemon()
+
+
+
+
