@@ -63,7 +63,7 @@ class FeatureExtractorWorker(threading.Thread):
                 self.process(msg[1])
             logging.info('exit recovery mode')
         while self.running:
-            self.logger.info('polling {}, queue depth: {}, processing depth: {}'.format(self.queue.get_processing_list(),
+            self.logger.info('polling {}, queue depth: {}, processing depth: {}'.format(self.queue.get_processing_list_nm(),
                                                                                         self.queue.queue_depth(),
                                                                                         self.queue.processing_depth()))
             self.logger.info('mem growth: {}'.format(str(objgraph.growth(limit=10))))

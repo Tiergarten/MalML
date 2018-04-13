@@ -34,7 +34,7 @@ def get_agent():
 #
 
 
-def update_callback_details(cb_uuid):
+def update_callback_details(cb_uuid, node):
     resp = {}
     if cb_uuid is None:
         cb_uuid = uuid.uuid4().hex
@@ -42,7 +42,7 @@ def update_callback_details(cb_uuid):
     elif cb_uuid in uuid_run_map:
         uuid_run_map[cb_uuid] += 1
     else:
-        app.logger.warn('received uuid we dont know about...')
+        app.logger.warn('received uuid we dont know about from {}'.format(node))
         uuid_run_map[cb_uuid] = 0
 
     resp['run_id'] = uuid_run_map[cb_uuid]
@@ -58,27 +58,6 @@ def get_form_param(param_name):
         return None
 
 
-class SampleQueue:
-    def sample_already_processed(self, sample):
-        if os.path.isdir(os.path.join(UPLOADS_DIR, sample)):
-            return True
-        else:
-            return False
-
-    # TODO: this is not thread safe, using disk as master record
-    def get_sample_to_process(self):
-        to_process = filter(lambda x: self.sample_already_processed(x) is False,
-                            get_samples(SAMPLES_DIR))
-
-        if len(to_process) == 0:
-            app.logger.warn('No samples left to process...')
-            return None, None
-
-        app.logger.info('to process: {}'.format(len(to_process)))
-        sample_to_process = DetonationSample(random.choice(to_process))
-        return '{}/agent/get_sample/{}'.format(EXT_IF, sample_to_process.sample), sample_to_process.get_arch()
-
-
 class UploadPublisher:
     @staticmethod
     def publish(detonation_upload, run_id):
@@ -87,7 +66,7 @@ class UploadPublisher:
 
     @staticmethod
     def publish_to_redis(du, run_id):
-        upload_queue = ReliableQueue(config.REDIS_UPLOAD_QUEUE_NAME).enqueue(du.to_json(run_id))
+        return ReliableQueue(config.REDIS_UPLOAD_QUEUE_NAME).enqueue(du.to_json(run_id))
 
 
 @app.before_request
@@ -97,28 +76,29 @@ def before_request():
         VmWatchDog(node).heartbeat()
 
 
+def get_extractor_pack_url(pack_name):
+    return EXTRACTOR_PACK_URL
+
+
 # TODO: Run_id & action needs to be done per extractor?!
 @app.route('/agent/callback', methods=['POST'])
 def callback():
     cb_uuid = get_form_param('uuid')
     node = get_form_param('node')
 
-    cb_uuid, resp = update_callback_details(cb_uuid)
+    cb_uuid, resp = update_callback_details(cb_uuid, node)
     app.logger.info('in callback - uuid: {} node: {}'.format(cb_uuid, node))
 
-    resp['pack_url'] = EXTRACTOR_PACK_URL
-    resp['extractor-pack'] = 'pack-1'
-
     if resp['run_id'] == 0 or True:
-        sample_to_process, arch = SampleQueue().get_sample_to_process()
-        if sample_to_process is None:
+        sample_metadata = SampleQueue().get_sample_to_process(node)
+        if sample_metadata is None:
+            app.logger.info('No samples left to process, returning...')
             return "OK"
 
-        sample_sha = sample_to_process.split('/')[-1].replace('.exe', '')
-        VmWatchDog(node).set_processing(sample_sha, cb_uuid, 0)
-
-        resp['sample_url'] = sample_to_process
-        resp['action'] = 'init{}'.format(arch)
+        resp['sample_url'] = '{}/agent/get_sample/{}'.format(EXT_IF, sample_metadata['sample'])
+        resp['action'] = 'init{}'.format(sample_metadata['arch'])
+        resp['extractor-pack'] = sample_metadata['extractor-pack']
+        resp['pack_url'] = get_extractor_pack_url(sample_metadata['extractor-pack'])
     else:
         resp['action'] = 'seek_and_destroy'
 
@@ -145,7 +125,7 @@ def get_md_fn(run_id):
 
 
 def vm_action(vm_name, action):
-    if SampleQueue().get_sample_to_process() is None:
+    if ReliableQueue(config.REDIS_SAMPLE_QUEUE_NAME).queue_depth() == 0:
         return
 
     if action == 'restore':
@@ -154,9 +134,11 @@ def vm_action(vm_name, action):
         VmWatchDog(vm_name).rest()
 
 
-@app.route('/agent/upload/<sample>/<uuid>/<run_id>', methods=['GET', 'POST'])
-def upload_results(sample, uuid, run_id, force_one_run=True):
-    du = DetonationUpload(UPLOADS_DIR, sample.replace('.exe', ''), uuid, [run_id])
+@app.route('/agent/upload/<_sample>/<uuid>/<run_id>', methods=['GET', 'POST'])
+def upload_results(_sample, uuid, run_id, force_one_run=True):
+    sample = _sample.replace('.exe', '')
+
+    du = DetonationUpload(UPLOADS_DIR, sample, uuid, [run_id])
 
     for f in request.files:
         request.files[f].save(du.get_path(f))
@@ -172,7 +154,7 @@ def upload_results(sample, uuid, run_id, force_one_run=True):
         app.logger.error('no node name')
         return "ERR - no node name"
 
-    VmWatchDog(vm_name).clear_processing()
+    SampleQueue().set_processed(vm_name, sample)
 
     if not get_form_param('status') in ['OK', 'WARN']:
         app.logger.error('error in run: {}:{}'.format(request.form['status'], request.form['status_msg']))
@@ -189,9 +171,10 @@ def upload_results(sample, uuid, run_id, force_one_run=True):
     return "OK"
 
 
-@app.route('/agent/error/<sample>/<uuid>/<run_id>', methods=['GET', 'POST'])
-def agent_error(sample, uuid, run_id):
-    upload_dir = get_upload_dir(UPLOADS_DIR, sample.replace('.exe', ''), uuid, run_id)
+@app.route('/agent/error/<sample>', methods=['GET', 'POST'])
+def agent_error(sample):
+    run_id = str(0)
+    upload_dir = get_upload_dir(UPLOADS_DIR, sample.replace('.exe', ''), uuid.uuid4().hex, run_id)
 
     md = {}
     set_run_status(md, get_form_param('status'), get_form_param('status_msg'))
@@ -215,10 +198,6 @@ def init():
     app.logger.addHandler(console_log_handler)
 
     app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
-
-    for vm, snapshot in config.ACTIVE_VMS:
-        VmWatchDog(vm).clear_processing()
-        VmWatchDog(vm).restore()
 
 
 if __name__ == '__main__':

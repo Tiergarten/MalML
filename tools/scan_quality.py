@@ -1,4 +1,5 @@
 from model_gen.mg_common import *
+from common import *
 from datetime import datetime
 
 
@@ -29,13 +30,6 @@ def get_dt(dt_str):
         return datetime.strptime(dt_str, '%Y-%m-%d %H:%M:%S.%f')
 
 
-def get_all_es(query):
-    if query.count() > 0:
-        return query[0:query.count()].execute()
-    else:
-        return []
-
-
 def samples_by_source_uniq(input):
     counts = {}
 
@@ -49,6 +43,7 @@ def samples_by_source_uniq(input):
             counts[sample['source']] = set([sample_sha])
 
     return counts
+
 
 if __name__ == '__main__':
     total = UploadSearch().s().execute().hits.total

@@ -13,6 +13,8 @@ import threading
 from config import LOGS_DIR
 import subprocess
 import psutil
+from elasticsearch_dsl import Search
+
 
 class DetonationSample:
     def __init__(self, sample):
@@ -120,12 +122,14 @@ def get_detonator_uploads(upload_dir):
 
     return ret
 
+
 def enqueue_existing_uploads_for_feature_ext():
     q = ReliableQueue(config.REDIS_UPLOAD_QUEUE_NAME)
     for upload in get_detonator_uploads(config.UPLOADS_DIR):
         if upload.isSuccess():
             print 'sending {}'.format(upload.to_json())
             q.enqueue(upload.to_json())
+
 
 def get_samples(samples_dir):
     return [f for f in os.listdir(samples_dir) if is_sha256_fn(f)]
@@ -172,6 +176,7 @@ def create_dirs_if_not_exist(path):
     except:
         pass
 
+
 def set_run_status(json, status, msg):
     json['status'] = status
     json['status_msg'] = msg
@@ -210,7 +215,6 @@ def detonation_upload_to_es(detonation_upload, run_id):
 
     es.index(index=config.ES_CONF_UPLOADS[0], doc_type=config.ES_CONF_UPLOADS[1],
              body=json.dumps(metadata), id=_id)
-    print 'wrote -> elastic {}'.format(_id)
 
 
 def push_upload_stats_elastic(json_dir=config.UPLOADS_DIR):
@@ -232,32 +236,55 @@ class ReliableQueue:
         self.r = get_redis()
         self.blocking_timeout = 15
 
-    def get_processing_list(self):
+    def get_processing_list_nm(self):
         return '{}:{}'.format(self.consumer_queue_prefix, self.consumer_id)
 
-    def enqueue(self, msg):
-        self.r.lpush(self.producer_queue, msg)
+    def enqueue(self, msg, priority=0):
+        if priority == 0:
+            self.r.lpush(self.producer_queue, msg)
+        else:
+            self.r.rpush(self.producer_queue, msg)
 
     def dequeue(self):
-        return self.r.brpoplpush(self.producer_queue, self.get_processing_list(), self.blocking_timeout)
+        return self.r.brpoplpush(self.producer_queue, self.get_processing_list_nm(), self.blocking_timeout)
 
+    # TODO: this should peek, not pop?
     def dequeue_recovery(self):
-        return self.r.blpop(self.get_processing_list(), self.blocking_timeout)
+        return self.r.blpop(self.get_processing_list_nm(), self.blocking_timeout)
 
     def commit(self, msg):
-        return self.r.lrem(self.get_processing_list(), msg)
+        return self.r.lrem(self.get_processing_list_nm(), msg)
 
     def queue_depth(self):
-        return self.r.llen(self.producer_queue)
+        if self.r.exists(self.producer_queue):
+            return self.r.llen(self.producer_queue)
+        else:
+            return 0
 
     def processing_depth(self):
-        return self.r.llen(self.get_processing_list())
+        if self.r.exists(self.get_processing_list_nm()):
+            return self.r.llen(self.get_processing_list_nm())
+        else:
+            return 0
+
+    def processing_items(self):
+        if self.processing_depth() > 0:
+            return self.r.lrange(self.get_processing_list_nm(), 0, -1)
+        else:
+            return []
+
+    def queue_items(self):
+        if self.queue_depth() > 0:
+            return self.r.lrange(self.producer_queue, 0, -1)
+        else:
+            return []
 
     def clear_queue(self):
         self.r.delete(self.producer_queue)
 
     def clear_processing_queues(self):
         for k in self.r.keys('{}:*'.format(self.consumer_queue_prefix)):
+            logging.info('deleting {}'.format(k))
             self.r.delete(k)
 
 
@@ -290,3 +317,135 @@ class TimeoutExec:
         except:
             pass
         logging.warn('killed long running script: {}'.format(pid))
+
+
+class UploadSearch:
+    def __init__(self, extractor_pack=None, feature_family=None, sample=None):
+        self._extractor_pack = extractor_pack
+        self._feature_family = feature_family
+        self._sample = sample
+
+    @staticmethod
+    def s():
+        return Search(using=get_elastic(), index=config.ES_CONF_UPLOADS[0], doc_type=config.ES_CONF_UPLOADS[1])
+
+    def search(self):
+        ret = UploadSearch.s()
+        if self._extractor_pack is not None:
+            ret = ret.filter('match', extractor_pack=self._extractor_pack)
+        if self._feature_family is not None:
+            ret = ret.filter('match', feature_family=self._feature_family)
+        if self._sample is not None:
+            ret = ret.filter('match', sample=self._sample)
+
+        return ret.execute()
+
+
+class SampleSearch:
+    def __init__(self, label=None, arch=None, source=None, sample=None):
+        self._label = label
+        self._arch = arch
+        self._source = source
+        self._sample = sample
+
+    @staticmethod
+    def s():
+        return Search(using=get_elastic(), index=config.ES_CONF_SAMPLES[0], doc_type=config.ES_CONF_SAMPLES[1])
+
+    def search(self):
+        ret = SampleSearch.s()
+        if self._label is not None:
+            ret = ret.filter('match', label=self._label)
+        if self._arch is not None:
+            ret = ret.filter('match', arch=self._arch)
+        if self._source is not None:
+            ret = ret.filter('match', source=self._source)
+        if self._sample is not None:
+            ret = ret.filter('match', sample=self._sample)
+
+        return ret.execute()
+
+
+class FeatureSearch:
+    def __init__(self, sample=None):
+        self.sample = sample
+
+    @staticmethod
+    def s():
+        return Search(using=get_elastic(), index=config.ES_CONF_FEATURES[0], doc_type=config.ES_CONF_FEATURES[1])
+
+    def search(self):
+        ret = FeatureSearch.s()
+        if self.sample is not None:
+            ret = ret.filter('match', sample_id=self.sample)
+
+        return ret.execute()
+
+
+def get_all_es(query):
+    if query.count() > 0:
+        return query[0:query.count()].execute()
+    else:
+        return []
+
+
+class SampleQueue:
+    def __init__(self):
+        self.processing_qeueues = {}
+        self.logger = logging.getLogger(self.__class__.__name__)
+
+    def get_proc_queue(self, node_nm):
+        if node_nm not in self.processing_qeueues.keys():
+            self.processing_qeueues[node_nm] = ReliableQueue(config.REDIS_SAMPLE_QUEUE_NAME, config.REDIS_NODE_PREFIX,
+                                                             node_nm)
+        return self.processing_qeueues[node_nm]
+
+    def get_sample_to_process(self, node_nm):
+        q = self.get_proc_queue(node_nm)
+        if q.processing_depth() > 0:
+            self.logger.error('{} is trying to request new sample, when processing depth > 0'.format(node_nm))
+            # TODO: What to do here? Push to dead letter queue?
+
+        proc_payload = q.dequeue()
+        if proc_payload is None:
+            return None
+
+        ret = json.loads(proc_payload)
+        self.logger.info('dequeued: {} for {}'.format(ret['sample'], node_nm))
+
+        return ret
+
+    def get_processing(self, vm_name):
+        q = self.get_proc_queue(vm_name)
+        processing = q.processing_items()
+
+        if len(processing) > 1:
+            self.logger.error('More than one item in SampleQueue {}'.format(q.get_processing_list_nm()))
+
+        if len(processing) > 0:
+            return json.loads(processing[0])
+        else:
+            return None
+
+    def set_processed(self, vm_name, sample=None):
+        # There should only be one...
+        processing = self.get_processing(vm_name)
+        if processing is None:
+            self.logger.error('Nothing processing in sample queue for {}, {} was set_processed'
+                          .format(self.get_proc_queue(vm_name).get_processing_list_nm(), vm_name))
+            return
+
+        if sample is not None and processing['sample'] != sample:
+            self.logger.error('Sample requested to commit is not in queue {} / {}'
+                          .format(sample, self.get_proc_queue(vm_name).get_processing_list_nm()))
+        else:
+            self.logger.info('Commiting {}/{}'.format(vm_name, processing['sample'][0:8]))
+            self.get_proc_queue(vm_name).commit(json.dumps(processing))
+
+
+# TODO: error checking
+def get_arch(binary):
+    cmd = 'file {}'.format(binary)
+    ps = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    ret = ps.communicate()[0]
+    return ret.split(': ')[1].rstrip()

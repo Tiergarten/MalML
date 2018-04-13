@@ -46,7 +46,6 @@ class FeatureSetsWriter:
         self.body['extractor-pack'] = metadata.get_extractor_pack()
         self.body['uuid'] = metadata.get_uuid()
 
-
     def get_filename(self):
         fn = '{}-{}.json'.format(self.body['feature_set_name'], self.body['feature_set_ver'])
         return os.path.join(self.output_dir, self.body['sample_id'], self.body['run_id'], fn)

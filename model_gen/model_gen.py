@@ -36,6 +36,7 @@ def train_evaluate_kfolds(_classifier, data, kfolds, _norm=None):
     eval = MalMlFeatureEvaluator(data_rdd, classifier, norm)
     return eval.eval()
 
+
 if __name__ == '__main__':
 
     setup_logging('model_gen.log')
