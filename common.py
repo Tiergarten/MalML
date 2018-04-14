@@ -29,8 +29,11 @@ class DetonationSample:
         else:
             return None
 
+    def metadata_file(self):
+        return os.path.join(config.SAMPLES_DIR, '{}.json'.format(self.sample))
+
     def get_metadata(self):
-        with open(os.path.join(config.SAMPLES_DIR, '{}.json'.format(self.sample)), 'r') as fd:
+        with open(self.metadata_file(), 'r') as fd:
             return json.load(fd)
 
     def get_source(self):
@@ -188,14 +191,14 @@ def setup_logging(_log_fn):
     log_fn = os.path.join(LOGS_DIR, _log_fn)
 
     file_log_handler = TimedRotatingFileHandler(log_fn, when='D')
-    file_log_handler.setLevel(logging.INFO)
+    file_log_handler.setLevel(logging.DEBUG)
     file_log_handler.setFormatter(formatter)
 
     console_log_handler = logging.StreamHandler(sys.stdout)
     console_log_handler.setFormatter(formatter)
 
     root = logging.getLogger()
-    root.setLevel(logging.INFO)
+    root.setLevel(logging.DEBUG)
     root.addHandler(file_log_handler)
     root.addHandler(console_log_handler)
 
@@ -296,13 +299,15 @@ class TimeoutExec:
     def do_exec(self):
         logging.info('calling {}'.format(self.cmdline))
 
-        p = subprocess.Popen(self.cmdline, shell=True)
-
+        p = subprocess.Popen(self.cmdline, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         psid = psutil.Process(p.pid)
+
         try:
             psid.wait(timeout=1 * 60)
         except psutil.TimeoutExpired:
             self.kill_long_running_process(p.pid)
+
+        return p.communicate()
 
     def kill_long_running_process(self, pid):
         logging.error('Timeout breached - {}'.format(self.cmdline))

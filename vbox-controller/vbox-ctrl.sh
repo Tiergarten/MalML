@@ -2,20 +2,6 @@
 set -e
 
 VBOX_PATH="/cygdrive/c/Program Files/Oracle/VirtualBox"
-VMS_DIR="/cygdrive/c/Users/m/VirtualBox VMs"
-
-function recover_from_stall() {
-    for i in $(ps -W | grep -i virt | sed 's/  */ /g' | cut -d ' ' -f 2);do taskkill.exe /F /PID $i;done
-    for i in $(ls "${VMS_DIR}" | egrep ^win | grep -v base);do
-        echo "Checking ${i} for errors..."
-        #set +e
-        manage showvminfo "${i}"
-        #if [[ $? -ne 0 ]]; then
-        #    echo "${i} needs restoring"
-        #fi
-        #set -e
-    done
-}
 
 function info() {
     echo "[$$] [INFO] $@"
@@ -49,10 +35,12 @@ function manage() {
 	info "${VBOX_PATH}/VBoxManage.exe" "$@"
 	"${VBOX_PATH}/VBoxManage.exe" "$@"
 	retVal=$?
-	echo "RETVAL: ${retVal}"
+
 	if [[ "${retVal}" -ne "0" ]]; then
 	    echo "WARN: looks like there is a problem with Vm ${3}"
 	fi
+
+	return ${retVal}
 }
 
 function stopVm() {
@@ -129,6 +117,13 @@ function main() {
     info "VBOX-CTRL CALLED: vm: ${vmName}, snapshotName: ${snapshotName}, action: ${action}"
 
     case ${action} in
+        "status")
+            if [[ $(isRunning ${vmName}) == "0" ]]; then
+                echo "STOPPED"
+            else
+                echo "RUNNING"
+            fi
+        ;;
         "start")
             if [[ $(isRunning ${vmName}) == "0" ]]; then
 			    startVm ${vmName}

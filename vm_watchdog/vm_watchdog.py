@@ -116,7 +116,15 @@ class VboxManager(threading.Thread):
                                                       self.get_active_snapshot(), action)
 
         te = TimeoutExec(cmdline, 1)
-        te.do_exec()
+        stdout, stderr = te.do_exec()
+
+        self.logger.debug("stdout: {}".format(stdout))
+        self.logger.debug("stderr: {}".format(stderr))
+
+        if action in ('restart', 'restore') and 'has been successfully started' not in stdout:
+            self.logger.error('vm {} is broken'.format(self.vm_name))
+
+        return stdout, stderr
 
     def restart(self):
         return self.call_ctrl_script('restart')
@@ -183,7 +191,13 @@ class VmHeartbeat(threading.Thread):
         if last_processing is None:
             return
 
-        self.signal_controller_timeout(last_processing)
+        # ./vbox-ctrl.sh -a status -v win7_sp1_ent-dec_2011_vm2
+        stdout, stderr = VboxManager(vm, None).call_ctrl_script('status')
+        if 'RUNNING' in stdout:
+            self.signal_controller_timeout(last_processing)
+        else:
+            self.logger.warn('Not signaling error for {} on {} as its not running'.format(last_processing['sample'][0:8], vm))
+
         common.SampleQueue().set_processed(vm)
 
     def _run(self):
@@ -221,11 +235,12 @@ if __name__ == '__main__':
     daemon_mode = False
 
     common.setup_logging('vm-watchdog.log')
+    logging.getLogger().setLevel(logging.DEBUG)
 
     opts, excess = getopt.getopt(sys.argv[1:], 'ds', ['daemon', 'stop-all'])
     for opt, arg in opts:
         if opt in ('-d', '--daemon'):
-            daemon = True
+            daemon_mode = True
 
     # TODO: When would this be required?
     if heartbeat_init:
