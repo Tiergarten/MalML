@@ -20,6 +20,9 @@ import collections
 
 import random
 
+from model_gen.input import get_sample_set_from_disk
+from model_gen.mg_common import  SampleLabelPredictor
+
 __version__ = '0.0.1'
 
 
@@ -35,20 +38,47 @@ class SampleEnqueuer(threading.Thread):
     def get_samples_from_disk(self):
         return [f for f in os.listdir(config.SAMPLES_DIR) if is_sha256_fn(f)]
 
+    def prioritize_pick(self, unprocessed, existing_malware, existing_benign):
+
+        if len(existing_malware) > len(existing_benign):
+            wanted = SampleLabelPredictor.BENIGN
+        else:
+            wanted = SampleLabelPredictor.MALWARE
+
+        good = []
+        for s in unprocessed:
+            ds = DetonationSample(s)
+            if SampleLabelPredictor(ds).get_label() == wanted:
+                good.append(s)
+
+        if len(good) > 0:
+            return wanted, random.sample(good, 1)
+
+        logging.warn('Unable to get class we want... ({})'.format(wanted))
+
+        ret = random.sample(unprocessed, 1)
+        if wanted == SampleLabelPredictor.MALWARE:
+            return SampleLabelPredictor.BENIGN, ret
+        else:
+            return SampleLabelPredictor.MALWARE, ret
+
     def get_samples_to_process(self, count=1):
         unprocessed = [sample for sample in self.get_samples_from_disk()
                        if sample not in self.in_flight]
 
         logging.info('identified {} unprocessed samples'.format(len(unprocessed)))
-
-        # TODO: This needs to see whats already processed (benign/malware) and attempt to keep them balanced!
-        if len(unprocessed) > 0:
-            if len(unprocessed) >= count:
-                return random.sample(unprocessed, count)
-            else:
-                return unprocessed
-        else:
+        if len(unprocessed) == 0:
             return None
+
+        malware, benign = get_sample_set_from_disk()
+
+        ret = []
+        for i in range(0, count):
+            clazz, sample = self.prioritize_pick(unprocessed, malware, benign)
+            logging.info('priority picked {} / {}'.format(clazz, sample[0:8]))
+            ret = ret + sample
+
+        return ret
 
     def get_in_flight_es(self):
         ret = []

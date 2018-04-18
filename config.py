@@ -9,7 +9,7 @@ EXTRACTOR_PACK_URL = '{}/agent/extractor_pack/default'.format(EXT_IF)
 
 # TODO: This needs to move to a yaml file, and be looked up on demand, so that we can make
 #  changes at runtime, and all services can see changes instantly
-_ACTIVE_VMS = [('win7_sp1_ent-dec_2011', 'autorun v0.4', 6)]
+_ACTIVE_VMS = [('win7_sp1_ent-dec_2011', 'autorun v0.4', 4)]
 ACTIVE_VMS = []
 for suite in _ACTIVE_VMS:
     for i in range(1, suite[2]+1):

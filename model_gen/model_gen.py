@@ -45,7 +45,10 @@ if __name__ == '__main__':
     run_id = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     # TODO: This gets _ALL_ samples, we need to be more selective
-    sample_set = get_sample_set_from_disk(balanced=True, elastic_push=False)
+    malware, benign = get_sample_set_from_disk(elastic_push=False)
+    malware, benign = balance_classes(malware, benign)
+
+    sample_set = SampleSet('all-{}'.format(datetime.datetime.now()), benign, malware)
     sample_set.write(os.path.join(config.MODELS_DIR, '{}_sampleset.json'.format(run_id)))
 
     mib = ModelInputBuilder(sample_set)

@@ -11,6 +11,7 @@ from pyspark.mllib.evaluation import BinaryClassificationMetrics
 
 import config
 
+import logging
 
 def get_elastic():
     return Elasticsearch()
@@ -125,19 +126,18 @@ class SampleLabelPredictor:
     MALWARE = 1.0
     BENIGN = 0.0
 
-    def __init__(self, detonation_sample, pcount_min=5, pcount_perc=None, vti_only=False):
+    def __init__(self, detonation_sample, pcount_min=5, pcount_perc=None):
         self.sample = detonation_sample
         self.sample_json = detonation_sample.get_metadata()
 
         self.pcount_min = pcount_min
         self.pcount_perc = pcount_perc
-        self.vti_only = vti_only
 
     def get_scan_data(self):
         if 'vti' in self.sample_json and 'scans' in self.sample_json['vti']:
             return self.sample_json['vti']['scans']
-        elif 'existing_metadata' in self.sample_json:
-            return self.sample_json['existing_metadata']['scans']
+        elif 'existing' in self.sample_json:
+            return self.sample_json['existing']['scans']
         else:
             return None
 
@@ -145,6 +145,7 @@ class SampleLabelPredictor:
         scan_data = self.get_scan_data()
 
         if scan_data is None:
+            #logging.error('unable to get scan data for {}!'.format(self.sample.sample))
             return None
 
         detected = 0
@@ -164,7 +165,7 @@ class SampleLabelPredictor:
                 return SampleLabelPredictor.BENIGN
 
     def get_explicit_label(self):
-        if 'label' in self.sample_json:
+        if 'label' in self.sample_json.keys():
             if self.sample_json['label'] == 'malware':
                 return SampleLabelPredictor.MALWARE
             elif self.sample_json['label'] == 'benign':
@@ -174,11 +175,16 @@ class SampleLabelPredictor:
         else:
             return None
 
-    def get_label(self):
+    def get_label(self, vti_only=False, explicit_only=False):
         explicit_label = self.get_explicit_label()
         vti_label = self.vti_predict_label()
 
-        if self.vti_only is True and vti_label is not None:
+        if vti_only is True:
             return vti_label
+        elif explicit_only is True:
+            return explicit_label
 
-        return SampleLabelPredictor.MALWARE if explicit_label == 'malware' else SampleLabelPredictor.BENIGN
+        if explicit_label is not None:
+            return explicit_label
+        else:
+            return vti_label

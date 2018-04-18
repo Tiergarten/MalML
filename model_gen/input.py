@@ -68,7 +68,22 @@ def get_feature_files():
             for f in os.listdir(config.FEATURES_DIR) if not f.startswith('.')]
 
 
-def get_sample_set_from_disk(balanced=True, elastic_push=False):
+def push_features_to_elastic():
+    total_features = get_feature_files()
+    logging.info('total feature files: {}'.format(len(total_features)))
+
+    for f in total_features:
+        with open(f, 'r') as fd:
+            md = json.load(fd)
+
+        if len(md['feature_sets']) == 0:
+            continue
+
+        _id = '{}-{}-{}'.format(md['sample_id'], md['uuid'], md['run_id'])
+        get_elastic().index(index=config.ES_CONF_FEATURES[0], doc_type=config.ES_CONF_FEATURES[1], body=json.dumps(md), id=_id)
+
+
+def get_sample_set_from_disk(elastic_push=False):
     malware = []
     benign = []
 
@@ -83,14 +98,8 @@ def get_sample_set_from_disk(balanced=True, elastic_push=False):
         if len(md['feature_sets']) == 0:
             continue
 
-        if elastic_push:
-            _id = '{}-{}-{}'.format(md['sample_id'], md['uuid'], md['run_id'])
-            get_elastic().index(index=config.ES_CONF_FEATURES[0], doc_type=config.ES_CONF_FEATURES[1],
-                                body=json.dumps(md), id=_id)
-            elastic_wrote += 1
-
         ds = DetonationSample(md['sample_id'])
-        label = SampleLabelPredictor(ds).get_explicit_label()
+        label = SampleLabelPredictor(ds).get_label()
 
         if label == SampleLabelPredictor.MALWARE:
             malware.append(ds.sample)
@@ -101,14 +110,17 @@ def get_sample_set_from_disk(balanced=True, elastic_push=False):
 
     logging.info('benign: {}, malware: {}, total: {}'.format(len(benign), len(malware),
                                                              len(benign) + len(malware)))
-    if balanced:
-        if len(malware) > len(benign):
-            malware = malware[0:len(benign)]
-        elif len(benign) > len(malware):
-            benign = benign[0:len(malware)]
+    if elastic_push:
+        logging.info('wrote to elastic: {}'.format(elastic_wrote))
 
-        logging.info('balanced: benign: {}, malware: {}'.format(len(benign), len(malware)))
+    return malware, benign
 
-    logging.info('wrote to elastic: {}'.format(elastic_wrote))
 
-    return SampleSet('all-{}'.format(datetime.now()), benign, malware)
+def balance_classes(malware, benign):
+    if len(malware) > len(benign):
+        malware = malware[0:len(benign)]
+    elif len(benign) > len(malware):
+        benign = benign[0:len(malware)]
+
+    logging.info('balanced: benign: {}, malware: {}'.format(len(benign), len(malware)))
+    return malware, benign

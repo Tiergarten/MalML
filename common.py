@@ -190,6 +190,9 @@ def setup_logging(_log_fn):
 
     log_fn = os.path.join(LOGS_DIR, _log_fn)
 
+    logging.getLogger("elasticsearch").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+
     file_log_handler = TimedRotatingFileHandler(log_fn, when='D')
     file_log_handler.setLevel(logging.DEBUG)
     file_log_handler.setFormatter(formatter)
@@ -248,7 +251,7 @@ class ReliableQueue:
         else:
             self.r.rpush(self.producer_queue, msg)
 
-    def dequeue(self):
+    def dequeue(self, lifo=False):
         return self.r.brpoplpush(self.producer_queue, self.get_processing_list_nm(), self.blocking_timeout)
 
     # TODO: this should peek, not pop?

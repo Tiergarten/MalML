@@ -68,7 +68,7 @@ class FeatureExtractorWorker(threading.Thread):
                                                                                         self.queue.processing_depth()))
             self.logger.info('mem growth: {}'.format(str(objgraph.growth(limit=10))))
 
-            msg = self.queue.dequeue()
+            msg = self.queue.dequeue(lifo=True)
             if msg is None:
                 continue
             self.process(msg)
@@ -112,7 +112,7 @@ if __name__ == '__main__':
     daemon = False
     force = False
     worker_name = 'default'
-    worker_count = 1
+    worker_count = 6
     oneshot_sample = None
 
     setup_logging('feature_extractor.log')
