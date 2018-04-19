@@ -185,7 +185,7 @@ def set_run_status(json, status, msg):
     json['status_msg'] = msg
 
 
-def setup_logging(_log_fn):
+def setup_logging(_log_fn, level=logging.DEBUG):
     formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
     log_fn = os.path.join(LOGS_DIR, _log_fn)
@@ -194,14 +194,14 @@ def setup_logging(_log_fn):
     logging.getLogger("urllib3").setLevel(logging.WARNING)
 
     file_log_handler = TimedRotatingFileHandler(log_fn, when='D')
-    file_log_handler.setLevel(logging.DEBUG)
+    file_log_handler.setLevel(level)
     file_log_handler.setFormatter(formatter)
 
     console_log_handler = logging.StreamHandler(sys.stdout)
     console_log_handler.setFormatter(formatter)
 
     root = logging.getLogger()
-    root.setLevel(logging.DEBUG)
+    root.setLevel(level)
     root.addHandler(file_log_handler)
     root.addHandler(console_log_handler)
 

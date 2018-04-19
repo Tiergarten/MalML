@@ -114,12 +114,17 @@ class SampleSet:
         with open(fn, 'w') as fd:
             fd.write(json.dumps(self.json_body))
 
-    def read(self, fn):
+    @staticmethod
+    def from_file(self, fn):
         with open(fn, 'r') as fd:
-            self.json_body = json.loads(fd.read())
+            j = json.loads(fd.read())
+
+        return SampleSet(j['name'], j['data']['benign'], j['data']['malware'])
 
     def __str__(self):
-        return json.dumps(self.json_body)
+        return '{}: malware:{}, benign:{}'.format(self.json_body['name'],
+                                                  len(self.json_body['data']['benign']),
+                                                  len(self.json_body['data']['malware']))
 
 
 class SampleLabelPredictor:

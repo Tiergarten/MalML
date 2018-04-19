@@ -11,6 +11,7 @@ import numpy as np
 import time
 from pyspark.mllib.regression import LabeledPoint
 from pyspark.mllib.feature import StandardScaler
+from pyspark.mllib.tree import RandomForest, RandomForestModel
 
 
 def get_train_test_split(labelled_rdd, split_n=10):
@@ -80,13 +81,23 @@ class SVMClassifier:
         return SVMWithSGD.train(training_data)
 
 
-class RFClassifier:
+class DTClassifier:
     def __init__(self):
         pass
 
     def train(self, training_data):
         return DecisionTree.trainClassifier(training_data, 2, categoricalFeaturesInfo={},
                                             impurity='gini', maxDepth=5, maxBins=32)
+
+
+class RFClassifier:
+    def __init__(self):
+        pass
+
+    def train(self, training_data):
+        return RandomForest.trainClassifier(training_data, numClasses=2, categoricalFeaturesInfo={},
+                                 numTrees=3, featureSubsetStrategy="auto",
+                                 impurity='gini', maxDepth=4, maxBins=32)
 
 
 class StandardScalerNormalizer:
@@ -118,10 +129,11 @@ class MalMlFeatureEvaluator:
 
     def eval(self):
         train_test = get_train_test_split(self.dataset, self.folds)
+        fold = 0
         for train, test in train_test:
             model = MalMlModel(train, self.classifier, self.normalizer)
             model.build()
-            model.save_to_disk()
+            #model.save_to_disk()
 
             self.models.append(model)
 
@@ -130,7 +142,8 @@ class MalMlFeatureEvaluator:
                 output.append((lp.label, float(model.evaluate(lp.features))))
 
             results = ResultStats(self.classifier.__class__.__name__, output)
-            logging.info(results)
+            logging.info('[{}] {}'.format(fold, results))
             self.results.append(results.to_numpy())
+            fold += 1
 
         return np.average(self.results, axis=0)
