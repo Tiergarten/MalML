@@ -159,7 +159,7 @@ class ModelEvaluator:
         self.model_builder = model_builder
         self.results = []
 
-    def train_eval_kfolds(self, kfolds=5):
+    def train_eval_kfolds(self, kfolds=10):
         train_test = get_train_test_splits(self.dataset, kfolds)
 
         fold = 0

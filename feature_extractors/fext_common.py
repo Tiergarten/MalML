@@ -32,6 +32,16 @@ def create_dirs_if_not_exist(path):
         pass
 
 
+class FeatureFamily:
+    def __init__(self, body):
+        self.body = body
+
+    @staticmethod
+    def from_file(fn):
+        with open(fn, 'r') as fd:
+            return FeatureFamily(json.loads(fd.read()))
+
+# TODO: Re-write
 class FeatureSetsWriter:
     def __init__(self, output_dir, sample_id, run_id, feature_set_name, feature_set_ver, metadata):
         self.body = {}
