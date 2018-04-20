@@ -96,8 +96,8 @@ class RFClassifier:
 
     def train(self, training_data):
         return RandomForest.trainClassifier(training_data, numClasses=2, categoricalFeaturesInfo={},
-                                 numTrees=3, featureSubsetStrategy="auto",
-                                 impurity='gini', maxDepth=4, maxBins=32)
+                                 numTrees=6, featureSubsetStrategy="auto",
+                                 impurity='gini', maxDepth=5, maxBins=32)
 
 
 class StandardScalerNormalizer:
@@ -118,32 +118,66 @@ class StandardScalerNormalizer:
         return self.normalizer.transform(data)
 
 
-class MalMlFeatureEvaluator:
-    def __init__(self, dataset, classifier, normalizer, k=5):
+class ModelEvaluator:
+    def __init__(self, dataset, model_builder):
         self.dataset = dataset
-        self.classifier = classifier
-        self.normalizer = normalizer
-        self.folds = k
-        self.models = []
+        self.model_builder = model_builder
         self.results = []
 
-    def eval(self):
-        train_test = get_train_test_split(self.dataset, self.folds)
+    def eval_kfolds(self, kfolds=5):
+        train_test = get_train_test_split(self.dataset, kfolds)
+
         fold = 0
         for train, test in train_test:
-            model = MalMlModel(train, self.classifier, self.normalizer)
-            model.build()
-            #model.save_to_disk()
 
-            self.models.append(model)
+            model = self.model_builder.build(train)
 
             output = []
             for lp in test.collect():
                 output.append((lp.label, float(model.evaluate(lp.features))))
 
-            results = ResultStats(self.classifier.__class__.__name__, output)
+            results = ResultStats(self.model_builder, output)
             logging.info('[{}] {}'.format(fold, results))
             self.results.append(results.to_numpy())
             fold += 1
 
         return np.average(self.results, axis=0)
+
+
+class ModelBuilder:
+    classifier_map = {
+        'svm': SVMClassifier,
+        'dt': DTClassifier,
+        'rf': RFClassifier
+    }
+
+    normalizer_map = {
+        'std': StandardScalerNormalizer,
+        None: None
+    }
+
+    def __init__(self, classifier, normalizer):
+        self.classifier = classifier
+        self.normalizer = normalizer
+
+    def build(self, train_data):
+        model = MalMlModel(train_data, ModelBuilder.classifier_map[self.classifier](),
+                           None if self.normalizer is None else ModelBuilder.normalizer_map[self.normalizer]())
+
+        model.build()
+        return model
+
+    def __str__(self):
+        return '{}/{}'.format(self.classifier, self.normalizer)
+
+
+class ModelMetaData:
+    def __init__(self, feature_nm, classifier, normalizer):
+        self.body = {
+            'feature_nm': feature_nm,
+            'classifier': classifier,
+            'normalizer': normalizer
+        }
+
+    def get(self):
+        return self.body
