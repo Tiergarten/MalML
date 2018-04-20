@@ -14,7 +14,7 @@ from pyspark.mllib.feature import StandardScaler
 from pyspark.mllib.tree import RandomForest, RandomForestModel
 
 
-def get_train_test_split(labelled_rdd, split_n=10):
+def get_train_test_splits(labelled_rdd, split_n=10):
     ret = []
     splits = labelled_rdd.randomSplit([float(1) / split_n] * split_n, seed=int(time.time()))
     for i in range(0, split_n):
@@ -72,6 +72,29 @@ class MalMlModel:
         else:
             return self.model.predict(input_vector)
 
+    def __str__(self):
+        return 'MalMlModel({}/{})'.format(str(self.classifier), str(self.normalizer))
+
+
+class EnsembleMalMlModel:
+    def __init__(self, models):
+        self.models = models
+
+    def evaluate(self, input_vector):
+        votes = []
+        for m in self.models:
+            votes.append(m.evaluate(input_vector))
+
+        ret = max(set(votes), key=votes.count)
+        #logging.info('votes: {}, ret: {}'.format(votes, ret))
+        return ret
+
+    def ensemble_name(self):
+        return'EnsembleMalMlModel(' + ','.join([str(m) for m in self.models]) + ')'
+
+    def __str__(self):
+        return 'EnsembleMalMlModel('+str(len(self.models))+')'
+
 
 class SVMClassifier:
     def __init__(self):
@@ -79,6 +102,9 @@ class SVMClassifier:
 
     def train(self, training_data):
         return SVMWithSGD.train(training_data)
+
+    def __str__(self):
+        return 'SVMClassifier'
 
 
 class DTClassifier:
@@ -89,6 +115,9 @@ class DTClassifier:
         return DecisionTree.trainClassifier(training_data, 2, categoricalFeaturesInfo={},
                                             impurity='gini', maxDepth=5, maxBins=32)
 
+    def __str__(self):
+        return 'DTClassifier'
+
 
 class RFClassifier:
     def __init__(self):
@@ -98,6 +127,9 @@ class RFClassifier:
         return RandomForest.trainClassifier(training_data, numClasses=2, categoricalFeaturesInfo={},
                                  numTrees=6, featureSubsetStrategy="auto",
                                  impurity='gini', maxDepth=5, maxBins=32)
+
+    def __str__(self):
+        return 'RFClassifier'
 
 
 class StandardScalerNormalizer:
@@ -117,6 +149,9 @@ class StandardScalerNormalizer:
     def norm(self, data):
         return self.normalizer.transform(data)
 
+    def __str__(self):
+        return 'StandardScaler'
+
 
 class ModelEvaluator:
     def __init__(self, dataset, model_builder):
@@ -124,24 +159,33 @@ class ModelEvaluator:
         self.model_builder = model_builder
         self.results = []
 
-    def eval_kfolds(self, kfolds=5):
-        train_test = get_train_test_split(self.dataset, kfolds)
+    def train_eval_kfolds(self, kfolds=5):
+        train_test = get_train_test_splits(self.dataset, kfolds)
 
         fold = 0
         for train, test in train_test:
 
             model = self.model_builder.build(train)
 
-            output = []
-            for lp in test.collect():
-                output.append((lp.label, float(model.evaluate(lp.features))))
-
-            results = ResultStats(self.model_builder, output)
+            results = ModelEvaluator.eval(model, test)
             logging.info('[{}] {}'.format(fold, results))
+
             self.results.append(results.to_numpy())
             fold += 1
 
-        return np.average(self.results, axis=0)
+        return ModelEvaluator.kfolds_avg_results(self.results)
+
+    @staticmethod
+    def kfolds_avg_results(results):
+        return np.average(results, axis=0)
+
+    @staticmethod
+    def eval(model, test):
+        output = []
+        for lp in test.collect():
+                output.append((lp.label, float(model.evaluate(lp.features))))
+
+        return ResultStats(model, output)
 
 
 class ModelBuilder:
@@ -169,15 +213,3 @@ class ModelBuilder:
 
     def __str__(self):
         return '{}/{}'.format(self.classifier, self.normalizer)
-
-
-class ModelMetaData:
-    def __init__(self, feature_nm, classifier, normalizer):
-        self.body = {
-            'feature_nm': feature_nm,
-            'classifier': classifier,
-            'normalizer': normalizer
-        }
-
-    def get(self):
-        return self.body
