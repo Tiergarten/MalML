@@ -58,17 +58,6 @@ def get_form_param(param_name):
         return None
 
 
-class UploadPublisher:
-    @staticmethod
-    def publish(detonation_upload, run_id):
-        detonation_upload_to_es(detonation_upload, run_id)
-        UploadPublisher.publish_to_redis(detonation_upload, run_id)
-
-    @staticmethod
-    def publish_to_redis(du, run_id):
-        return ReliableQueue(config.REDIS_UPLOAD_QUEUE_NAME).enqueue(du.to_json(run_id))
-
-
 @app.before_request
 def before_request():
     node = get_form_param('node')

@@ -37,7 +37,8 @@ def extract_features(du, run_id, force=False):
             logging.info('feature extract for {} already exists, skipping...'.format(du.sample))
             continue
 
-        feature_ext_class(feature_writer).run(du.get_output(run_id))
+        # TODO: turn off debug flag
+        feature_ext_class(feature_writer).run(du.get_output(run_id), True)
 
         # Doesn't seem to be garbage collected due to the dynamic way it's instantiated
         del feature_ext_class
@@ -111,22 +112,27 @@ if __name__ == '__main__':
     init_queue = False
     daemon = False
     force = False
+    init_queue = False
     worker_name = 'default'
-    worker_count = 6
+    worker_count = 3
     oneshot_sample = None
 
     setup_logging('feature_extractor.log')
 
-    opts, ret = getopt.getopt(sys.argv[1:], 'dco:f', ['daemon', 'clean', 'one-shot=', 'force'])
+    opts, ret = getopt.getopt(sys.argv[1:], 'dio:fw:n:', ['daemon', 'init', 'one-shot=', 'force', 'worker-cnt', 'worker-name'])
     for opt, arg in opts:
         if opt in ('-d', '--daemon'):
             daemon = True
-        elif opt in ('-c', '--clean'):
+        elif opt in ('-i', '--init'):
             init_queue = True
         elif opt in ('-o', '--one-shot'):
             oneshot_sample = arg
         elif opt in ('-f', '--force'):
             force = True
+        elif opt in ('-w', '--worker-cnt'):
+            worker_count = int(arg)
+        elif opt in ('-n', '--worker-name'):
+            worker_name = arg
 
     if init_queue:
         ReliableQueue(config.REDIS_UPLOAD_QUEUE_NAME).clear_processing_queues()
