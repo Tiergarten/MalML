@@ -22,7 +22,7 @@ def get_feature_extractor_for_pack(module, clazz):
     return getattr(importlib.import_module('feature_extractors.{}'.format(module)), clazz)
 
 
-def extract_features(du, run_id, force=False):
+def extract_features(du, run_id, id, force=False):
     metadata = DetonationMetadata(du)
 
     for (module, clazz) in get_fexts_for_pack(metadata.get_extractor_pack()):
@@ -37,7 +37,7 @@ def extract_features(du, run_id, force=False):
             logging.info('feature extract for {} already exists, skipping...'.format(du.sample))
             continue
 
-        feature_ext_class(feature_writer).run(du.get_output(run_id))
+        feature_ext_class(feature_writer,id).run(du.get_output(run_id))
 
         # Doesn't seem to be garbage collected due to the dynamic way it's instantiated
         del feature_ext_class
@@ -47,6 +47,7 @@ def extract_features(du, run_id, force=False):
 class FeatureExtractorWorker(threading.Thread):
     def __init__(self, producer_queue_nm, worker_nm):
         threading.Thread.__init__(self)
+        self.worker_nm = worker_nm
         self.queue = ReliableQueue(producer_queue_nm, config.REDIS_FEATURE_WORKER_PREFIX, worker_nm)
         self.setName(worker_nm)
         self.logger = logging.getLogger('{}-{}'.format(self.__class__.__name__, worker_nm))
@@ -76,7 +77,7 @@ class FeatureExtractorWorker(threading.Thread):
     def process(self, msg):
         du = DetonationUpload.from_json(msg)
         if du.isSuccess():
-            extract_features(du, int(json.loads(msg)['run_id']))
+            extract_features(du, int(json.loads(msg)['run_id']), self.worker_nm)
         else:
             self.logger.info('skipping {}, not successful'.format(du.sample))
 
@@ -112,12 +113,12 @@ if __name__ == '__main__':
     daemon = False
     force = False
     worker_name = 'default'
-    worker_count = 6
+    worker_count = 2
     oneshot_sample = None
 
     setup_logging('feature_extractor.log')
 
-    opts, ret = getopt.getopt(sys.argv[1:], 'dco:f', ['daemon', 'clean', 'one-shot=', 'force'])
+    opts, ret = getopt.getopt(sys.argv[1:], 'dco:ft:n:', ['daemon', 'clean', 'one-shot=', 'force', 'threads', 'name'])
     for opt, arg in opts:
         if opt in ('-d', '--daemon'):
             daemon = True
@@ -127,6 +128,10 @@ if __name__ == '__main__':
             oneshot_sample = arg
         elif opt in ('-f', '--force'):
             force = True
+        elif opt in ('-t', '--threads'):
+            worker_count = int(arg)
+        elif opt in ('-n', '--name'):
+            worker_name = arg
 
     if init_queue:
         ReliableQueue(config.REDIS_UPLOAD_QUEUE_NAME).clear_processing_queues()

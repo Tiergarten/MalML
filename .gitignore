@@ -110,3 +110,5 @@ data/logs/*
 data/models/*
 stash/*
 secrets.py
+model_gen/*.json
+data/experiments/*

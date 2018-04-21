@@ -14,10 +14,10 @@ class FextMemRwDump:
     extractor_name = 'ext-mem-rw-dump'
     __version__ = '0.0.1'
 
-    def __init__(self, feature_set_writer):
+    def __init__(self, feature_set_writer, worker_id):
         self.feature_set_writer = feature_set_writer
-        self.logger = logging.getLogger('{}-{}'.format(self.__class__.__name__,
-                                                       feature_set_writer.body['sample_id'][0:7]))
+        self.logger = logging.getLogger('{}-{}-{}'.format(self.__class__.__name__,
+                                                       feature_set_writer.body['sample_id'][0:7],worker_id))
 
 
     @staticmethod
@@ -162,13 +162,13 @@ class FextMemRwDump:
         # TODO: We will need to set static 'range' here so results are comparable across all binaries
         return np.histogram(tdeltas)
 
-    def run(self, fn):
+    def run(self, fn, debug=False):
         pd.set_option('display.float_format', lambda x: '%.2f' % x)
         np.set_printoptions(suppress=True)
 
         from_file = get_pintool_output(fn)
         if len(from_file) == 0:
-            self.logger.warn('no data in {}, skipping', fn)
+            self.logger.warn('no data in {}, skipping'.format(fn))
             return
 
         for access_type in ['R', 'W', 'RW']:
@@ -190,6 +190,12 @@ class FextMemRwDump:
 
                     # Split mem access into chunks, and calculate the mem access delta (from first in chunk)
                     chunk_tgt_deltas = FextMemRwDump.get_chunk_mem_deltas(df, instr_chunk_sz, feature_set)
+
+                    if debug:
+                        with open('debug_file.json') as fd:
+                            fd.write(json.dumps({instr}))
+
+
 
                     # Produce histogram
                     if len(chunk_tgt_deltas) < 3:
