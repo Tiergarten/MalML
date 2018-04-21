@@ -213,7 +213,7 @@ def detonation_upload_to_es(detonation_upload, run_id):
     _id = '{}-{}-{}'.format(detonation_upload.sample, detonation_upload.uuid, run_id)
 
     if not detonation_upload.md_exists(run_id):
-        print 'skipping {}'.format(detonation_upload.sample)
+        print 'du_to_es skipping {}, no run_id'.format(detonation_upload.sample)
         return
 
     metadata = detonation_upload.get_metadata(run_id)
@@ -223,11 +223,22 @@ def detonation_upload_to_es(detonation_upload, run_id):
              body=json.dumps(metadata), id=_id)
 
 
+class UploadPublisher:
+    @staticmethod
+    def publish(detonation_upload, run_id):
+        detonation_upload_to_es(detonation_upload, run_id)
+        UploadPublisher.publish_to_redis(detonation_upload, run_id)
+
+    @staticmethod
+    def publish_to_redis(du, run_id):
+        return ReliableQueue(config.REDIS_UPLOAD_QUEUE_NAME).enqueue(du.to_json(run_id))
+
+
 def push_upload_stats_elastic(json_dir=config.UPLOADS_DIR):
     uploads = get_detonator_uploads(json_dir)
-    for u in uploads:
-        for r in u.run_ids:
-            detonation_upload_to_es(u, r)
+    for du in uploads:
+        for r in du.run_ids:
+            UploadPublisher.publish(du, r)
 
 
 def get_redis():

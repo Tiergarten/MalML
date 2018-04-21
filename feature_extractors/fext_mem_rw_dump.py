@@ -162,6 +162,28 @@ class FextMemRwDump:
         # TODO: We will need to set static 'range' here so results are comparable across all binaries
         return np.histogram(tdeltas)
 
+    def extract_feature_set(self, df, access_type, instr_chunk_sz, feature_set, debug_distribution):
+        feature_name = "%s-%s-%s" % (access_type, feature_set, instr_chunk_sz)
+        self.logger.info('extracting feature: {}'.format(feature_name))
+        sys.stdout.flush()
+
+        # Split mem access into chunks, and calculate the mem access delta (from first in chunk)
+        chunk_tgt_deltas = FextMemRwDump.get_chunk_mem_deltas(df, instr_chunk_sz, feature_set)
+
+        if debug_distribution:
+            self.feature_set_writer.write_feature_set(feature_name, chunk_tgt_deltas)
+            return
+
+        # Produce histogram
+        if len(chunk_tgt_deltas) < 3:
+            self.logger.warn('not enough chunks for histogram, skipping {}'.format(feature_name))
+            return
+
+        hist, bin_edges = FextMemRwDump.get_histogram(chunk_tgt_deltas, feature_name,
+                                                      self.feature_set_writer)
+        # TODO: We don't want to write scientific notation
+        self.feature_set_writer.write_feature_set(feature_name, hist.tolist())
+
     def run(self, fn, debug=False):
         pd.set_option('display.float_format', lambda x: '%.2f' % x)
         np.set_printoptions(suppress=True)
@@ -170,6 +192,8 @@ class FextMemRwDump:
         if len(from_file) == 0:
             self.logger.warn('no data in {}, skipping'.format(fn))
             return
+
+        self.logger.info('parsing {}'.format(fn))
 
         for access_type in ['R', 'W', 'RW']:
             df = FextMemRwDump.get_df_from_lines(from_file, access_type)
@@ -184,29 +208,7 @@ class FextMemRwDump:
                         self.logger.warn('not enough instructions to fill a chunk, skipping...')
                         continue
 
-                    feature_name = "%s-%s-%s" % (access_type, feature_set, instr_chunk_sz)
-                    self.logger.info('extracting feature: {}'.format(feature_name))
-                    sys.stdout.flush()
-
-                    # Split mem access into chunks, and calculate the mem access delta (from first in chunk)
-                    chunk_tgt_deltas = FextMemRwDump.get_chunk_mem_deltas(df, instr_chunk_sz, feature_set)
-
-                    if debug:
-                        with open('debug_file.json') as fd:
-                            fd.write(json.dumps({instr}))
-
-
-
-                    # Produce histogram
-                    if len(chunk_tgt_deltas) < 3:
-                        self.logger.warn('not enough chunks for histogram, skipping {}'.format(feature_name))
-                        continue
-
-                    hist, bin_edges = FextMemRwDump.get_histogram(chunk_tgt_deltas, feature_name,
-                                                                    self.feature_set_writer)
-                    # TODO: We don't want to write scientific notation
-                    self.feature_set_writer.write_feature_set(feature_name, hist.tolist())
-                    gc.collect()
+                    self.extract_feature_set(df, access_type, instr_chunk_sz, feature_set, debug)
 
         self.feature_set_writer.write_feature_sets()
         self.logger.info('finished')
