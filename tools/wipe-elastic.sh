@@ -9,7 +9,7 @@ curl -XPUT "localhost:9200/${indexName}?pretty" -H 'Content-Type: application/js
         "index" : {
             "number_of_shards" : 3,
             "number_of_replicas" : 2,
-            "mapping.total_fields.limit": 1000 
+            "mapping.total_fields.limit": 5000
         }
     }
 }
@@ -23,15 +23,13 @@ function main() {
 
     if [[ $(uname) == "Darwin" ]]; then
         python "${INSTALL_DIR}/../sample_mgr/sample_importer.py" -e
-        python -c 'import common; common.push_upload_stats_elastic()'
-        python -c 'import model_gen.model_gen; model_gen.model_gen.get_sample_set_from_disk(False, True)'
     else
         source ${INSTALL_DIR}/set_python_path.sh
-
         python $(cygpath -w "${INSTALL_DIR}/../sample_mgr/sample_importer.py") -e
-        python -c 'import common; common.push_upload_stats_elastic()'
-        python -c 'import model_gen.model_gen; model_gen.model_gen.get_sample_set_from_disk(False, True)'
     fi
+
+    python -c 'import common; common.push_upload_stats_elastic()'
+    python -c 'import model_gen.input; model_gen.input.push_features_to_elastic()'
 }
 
 

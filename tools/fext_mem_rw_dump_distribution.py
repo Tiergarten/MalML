@@ -3,6 +3,9 @@ import config
 from feature_extractors.fext_common import *
 from common import *
 import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+from scipy import stats, integrate
 import seaborn as sns
 sns.set(color_codes=True)
 
@@ -14,7 +17,11 @@ if __name__ == '__main__':
         '5000': np.array([])
     }
 
+    cnt = 0
     for sample in os.listdir(config.FEATURES_DIR):
+        if cnt > 20:
+            break
+
         if not is_sha256_fn(sample):
             continue
 
@@ -24,7 +31,8 @@ if __name__ == '__main__':
                 print ffam.body['feature_sets'][feature_set]
                 feat_data = np.array(ffam.body['feature_sets'][feature_set]['feature_data'])
                 distributions['1000'] = np.concatenate((distributions['1000'], feat_data))
-
+        cnt += 1
 
     print distributions['1000']
     sns.distplot(distributions['1000'], hist=False, rug=True)
+    plt.show()
