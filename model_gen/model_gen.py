@@ -16,6 +16,7 @@ from model import *
 from input import *
 import datetime
 import getopt
+from pyspark import SparkContext, SparkConf
 
 
 FEATURE_FAM = 'ext-mem-rw-dump'
@@ -153,6 +154,9 @@ if __name__ == '__main__':
             load_sample_set = arg
         elif opt in ('-e', '--ensemble'):
             ensemble = True
+
+    conf = SparkConf().setAppName('model_gen').setMaster('local[*]')
+    sc = SparkContext(conf=conf)
 
     if not ensemble:
         samples = SampleSetGenerator.get_sample_set(load_sample_set, run_id)

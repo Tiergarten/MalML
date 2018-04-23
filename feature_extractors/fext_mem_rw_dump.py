@@ -143,7 +143,7 @@ class FextMemRwDump:
         return ret
 
     @staticmethod
-    def get_histogram(chunk_deltas, feature_name, feature_set_writer):
+    def get_histogram(instr_chunk_sz, chunk_deltas, feature_name, feature_set_writer):
 
         assert len(chunk_deltas) > 2, "Not enough chunks for histogram!"
 
@@ -159,8 +159,13 @@ class FextMemRwDump:
 
         feature_set_writer.write_metadata(feature_name, minmax_metadata)
 
-        # TODO: We will need to set static 'range' here so results are comparable across all binaries
-        return np.histogram(tdeltas)
+        histogram_ranges = {
+            '1000': (-318537000000000, 365617000000000),
+            '2000': (-18397000000000, 17959000000000),
+            '5000': (-343961000000000, 359544000000000)
+        }
+
+        return np.histogram(tdeltas, range=histogram_ranges[str(instr_chunk_sz)], bins=1024)
 
     def extract_feature_set(self, df, access_type, instr_chunk_sz, feature_set, debug_distribution):
         feature_name = "%s-%s-%s" % (access_type, feature_set, instr_chunk_sz)
@@ -171,7 +176,7 @@ class FextMemRwDump:
         chunk_tgt_deltas = FextMemRwDump.get_chunk_mem_deltas(df, instr_chunk_sz, feature_set)
 
         if debug_distribution:
-            self.feature_set_writer.write_feature_set(feature_name, chunk_tgt_deltas)
+            self.feature_set_writer.write_feature_set(feature_name, [x.item() for x in chunk_tgt_deltas])
             return
 
         # Produce histogram
@@ -179,7 +184,7 @@ class FextMemRwDump:
             self.logger.warn('not enough chunks for histogram, skipping {}'.format(feature_name))
             return
 
-        hist, bin_edges = FextMemRwDump.get_histogram(chunk_tgt_deltas, feature_name,
+        hist, bin_edges = FextMemRwDump.get_histogram(instr_chunk_sz, chunk_tgt_deltas, feature_name,
                                                       self.feature_set_writer)
         # TODO: We don't want to write scientific notation
         self.feature_set_writer.write_feature_set(feature_name, hist.tolist())

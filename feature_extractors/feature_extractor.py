@@ -37,12 +37,8 @@ def extract_features(du, run_id, id, force=False):
             logging.info('feature extract for {} already exists, skipping...'.format(du.sample))
             continue
 
-<<<<<<< HEAD
-        feature_ext_class(feature_writer,id).run(du.get_output(run_id))
-=======
         # TODO: turn off debug flag
-        feature_ext_class(feature_writer).run(du.get_output(run_id), True)
->>>>>>> e998f69e31cfeb80c3bf263222a4b552a1a386db
+        feature_ext_class(feature_writer, str(id)).run(du.get_output(run_id))
 
         # Doesn't seem to be garbage collected due to the dynamic way it's instantiated
         del feature_ext_class
