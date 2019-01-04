@@ -31,7 +31,7 @@ Selection of sample, detonation in a VM with a specific extractor pack, then cap
 
 ![alt text][detonation]
 
-Identify feature extractor plugin for the output from the specific and generate the feature data ready for input to ML models:
+Identify feature extractor plugin for the output from the specific pack and generate the feature data ready for input to ML models:
 
 ![alt text][feature-extraction]
 
