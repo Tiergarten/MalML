@@ -28,16 +28,21 @@ Sample results showing evaluation of Decision Tree and SVM classifiers:
 # High level architecture
 Selection of sample, detonation in a VM with a specific "extractor pack", capture results:
 ![alt text][detonation]
+
 Identify feature extractor plugin for the output from the specific and generate the feature data ready for input to ML models:
 ![alt text][feature-extraction]
+
 Poll for unprocessed feature data and use this to generate different ML models:
 ![alt text][model-generation]
+
 
 # Sandbox
 VirtualBox windows machines were configured to run a Python stub at start up, this fetches the sandbox agent code responsible for detonation of samples and returning results to the controller:
 ![alt text][sandbox-highlevel]
+
 Extractor packs were designed to allow the framework to work across different architectures and operating systems. The example below shows a Windows package, containing the 32bit runtime for Intel PinTool and compiled pins: 
 ![alt text][extractor-pack]
+
 The manifest file inside a pack instructs the sandbox agent what to execute and which results to capture and upload back to the controller:
 ![alt text][manifest]
 
