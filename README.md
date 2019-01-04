@@ -7,6 +7,7 @@
 # Dissertation experimentation
 
 ![alt text][dissertation-chunking-exp]
+
 The features used for experimentation in the dissertation project revolved around examining low level memory access patterns. More specifically, separating the address space into 1000 byte chunks and looking at relative target memory access distances within each chunk. This specific featre selection was inspired by **(Ozsoy, Donovick, Gorelik, Abu-Ghazaleh, & Ponomarev, 2015)**.
 
 Data sources included samples from theZoo malware repository, manually selected samples from VirusTotal and benign samples from fresh Windows installs and Chocolatey (Windows package manager).
